@@ -22,9 +22,13 @@ if not st.session_state.authenticated:
             st.error("Invalid credentials")
     st.stop()
 
-# --- 2. CONNECTIONS ---
+# --- 2. CONNECTIONS & STATE ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+
+# Initialize Chat History if it doesn't exist
+if "chat_log" not in st.session_state:
+    st.session_state.chat_log = []
 
 # --- 3. THE LIVE RGB ENGINE ---
 def get_live_color(score):
@@ -37,21 +41,35 @@ def get_live_color(score):
     emojis = {1:"😫", 2:"😖", 3:"🙁", 4:"☹️", 5:"😐", 6:"🙂", 7:"😊", 8:"😁", 9:"😆", 10:"🤩"}
     return f"rgb({r}, {g}, {b})", emojis.get(score, "😶")
 
-# --- 4. CALLBACK FOR AUTO-CLEARING TEXT ---
-def handle_patient_chat():
-    user_text = st.session_state.patient_input
+# --- 4. COOPER AI LOGIC ---
+def handle_chat(role_context):
+    """Universal chat handler for Patient and Caregiver"""
+    user_input_key = f"{role_context}_input"
+    user_text = st.session_state[user_input_key]
+    
     if user_text:
-        # Get AI response
-        chat = client.chat.completions.create(
+        # Add User message to log
+        st.session_state.chat_log.append({"role": "user", "user_type": role_context, "content": user_text})
+        
+        # Prepare AI context
+        energy_context = f"The patient's current energy is {st.session_state.get('current_score', 5)}/10."
+        system_prompt = f"Your name is Cooper. You are a compassionate health assistant helping a {role_context}. {energy_context}"
+        
+        # Call Groq
+        chat_completion = client.chat.completions.create(
             messages=[
-                {"role": "system", "content": f"Your name is Cooper. The patient's energy is {st.session_state.get('current_score', 5)}/10. Be supportive."},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_text}
             ],
             model="llama-3.3-70b-versatile"
         )
-        # Store response and clear input
-        st.session_state.patient_response = chat.choices[0].message.content
-        st.session_state.patient_input = ""
+        
+        # Add AI response to log
+        ai_resp = chat_completion.choices[0].message.content
+        st.session_state.chat_log.append({"role": "assistant", "content": ai_resp})
+        
+        # Clear the input box
+        st.session_state[user_input_key] = ""
 
 # --- 5. NAVIGATION ---
 role = st.sidebar.radio("Select Role:", ["Patient Portal", "Caregiver Coach"])
@@ -60,35 +78,28 @@ role = st.sidebar.radio("Select Role:", ["Patient Portal", "Caregiver Coach"])
 if role == "Patient Portal":
     st.title("👋 Patient Support Portal")
     
-    # Mood Tracker
-    st.write("### 📊 Live Energy Tracker")
-    mood_score = st.select_slider("Slide to rate your energy:", options=range(1, 11), value=5)
-    st.session_state.current_score = mood_score # Save for Cooper's context
+    mood_score = st.select_slider("Rate your energy:", options=range(1, 11), value=5)
+    st.session_state.current_score = mood_score
     
     rgb, emo = get_live_color(mood_score)
     st.markdown(f"""
-        <div style="display: flex; justify-content: center; align-items: center; margin: 10px auto;
-            width: 140px; height: 140px; background-color: {rgb}; border-radius: 50%; 
-            transition: background-color 0.4s ease; border: 5px solid white;">
-            <span style="font-size: 70px;">{emo}</span>
+        <div style="margin:auto; width:130px; height:130px; background-color:{rgb}; border-radius:50%; 
+        display:flex; justify-content:center; align-items:center; border:5px solid white; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <span style="font-size:70px;">{emo}</span>
         </div>
         """, unsafe_allow_html=True)
 
     st.divider()
 
-    # Cooper AI Assistant with Auto-Clear
+    # Cooper Chat Section
     st.subheader("🤖 Chat with Cooper")
-    st.text_input(
-        "Message Cooper:", 
-        key="patient_input", 
-        on_change=handle_patient_chat, 
-        placeholder="Type here and hit Enter..."
-    )
+    
+    # Display History
+    for chat in st.session_state.chat_log:
+        with st.chat_message(chat["role"]):
+            st.write(chat["content"])
 
-    if "patient_response" in st.session_state:
-        st.info(f"*Cooper:* {st.session_state.patient_response}")
-
-    st.divider()
+    st.text_input("Message Cooper:", key="patient_input", on_change=handle_chat, args=("patient",), placeholder="Ask Cooper anything...")
 
     # Save Entry
     if st.button("Save Entry Permanently", use_container_width=True):
@@ -98,20 +109,32 @@ if role == "Patient Portal":
             updated_df = pd.concat([df, new_row], ignore_index=True)
             conn.update(data=updated_df)
             st.success("Mood safely stored!")
-        except Exception as e:
-            st.error("Google Sheet Save failed. Please check your credentials.")
+        except:
+            st.error("Save failed. Check sheet permissions.")
 
 # --- 7. CAREGIVER COACH ---
 else:
     st.title("👩‍⚕️ Caregiver Command Center")
+    
+    # Data Visualization
     try:
         df = conn.read(ttl="1m")
         if not df.empty:
             last_val = int(df.iloc[-1]['Energy'])
-            c_rgb, c_emo = get_live_color(last_val)
-            st.metric("Latest Patient Energy", f"{last_val}/10")
+            st.metric("Patient's Latest Energy", f"{last_val}/10")
             st.line_chart(df.set_index("Date"))
         else:
-            st.info("No entries found yet.")
+            st.info("No data entries found yet.")
     except:
-        st.warning("Database connection error.")
+        st.warning("Google Sheets connection pending.")
+
+    st.divider()
+    
+    # Cooper Chat Section (Caregiver Side)
+    st.subheader("🤖 Caregiver Advisor (Cooper)")
+    
+    for chat in st.session_state.chat_log:
+        with st.chat_message(chat["role"]):
+            st.write(chat["content"])
+
+    st.text_input("Ask Cooper for advice:", key="caregiver_input", on_change=handle_chat, args=("caregiver",), placeholder="How can I support them today?")
