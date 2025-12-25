@@ -2,26 +2,41 @@ import streamlit as st
 import pandas as pd
 import datetime
 from groq import Groq
+from streamlit_gsheets import GSheetsConnection
 
 # --- SIMPLE LOGIN SYSTEM ---
+# Create the connection to your Google Sheet
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 def check_password():
-    """Returns True if the user had the correct password."""
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
     if not st.session_state.authenticated:
-        st.title("🔐 Secure Access")
-        password = st.text_input("Enter Access Code:", type="password")
-        if st.button("Unlock"):
-            if password == "health2025": # You can change this password!
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Incorrect code.")
+        st.title("🔐 Secure Login")
+        user_input = st.text_input("Username")
+        pass_input = st.text_input("Password", type="password")
+        
+        if st.button("Login"):
+            # This pulls the 'users' tab you made on your phone
+            try:
+                df = conn.read(worksheet="users")
+                # Look for the user
+                match = df[(df['username'] == user_input) & (df['password'] == str(pass_input))]
+                
+                if not match.empty:
+                    st.session_state.authenticated = True
+                    st.session_state.username = user_input
+                    st.session_state.role = match.iloc[0]['role']
+                    st.rerun()
+                else:
+                    st.error("Check your username or password.")
+            except Exception as e:
+                st.error("Could not connect to the database. Check your Secrets URL.")
         return False
     return True
 
-# If the password isn't correct, stop the script here
+# This line runs the function and stops the app if login fails
 if not check_password():
     st.stop()
 
@@ -144,4 +159,5 @@ elif role == "Caregiver Coach":
             except Exception as e:
                 st.error(f"Could not generate summary: {e}")
         else:
+
             st.warning("No data available to analyze yet.")
