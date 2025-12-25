@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 from groq import Groq
+from streamlit_gsheets import GSheetsConnection
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(page_title="AI Health Bridge", page_icon="🧠", layout="wide")
@@ -25,33 +26,23 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- 2. AI SETUP ---
+# --- 2. CONNECTIONS ---
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except Exception:
-    st.error("Missing GROQ_API_KEY in Streamlit Secrets.")
+    st.error("Missing GROQ_API_KEY in Secrets.")
     st.stop()
-
-if 'mood_history' not in st.session_state:
-    st.session_state.mood_history = []
 
 # --- 3. THE LIVE RGB ENGINE ---
 def get_live_color(score):
-    """Calculates a smooth RGB transition from Purple to Blue to Green"""
-    # Normalize score (1-10) to a 0-1 range
     val = (score - 1) / 9.0
-    
     if val < 0.5:
-        # Fade from Purple (128, 0, 128) to Blue (0, 0, 255)
-        r = int(128 * (1 - val * 2))
-        g = 0
-        b = int(128 + (127 * val * 2))
+        r, g, b = int(128 * (1 - val * 2)), 0, int(128 + (127 * val * 2))
     else:
-        # Fade from Blue (0, 0, 255) to Green (0, 255, 0)
         adj_val = (val - 0.5) * 2
-        r = 0
-        g = int(255 * adj_val)
-        b = int(255 * (1 - adj_val))
+        r, g, b = 0, int(255 * adj_val), int(255 * (1 - adj_val))
     
     emojis = {1:"😫", 2:"😖", 3:"🙁", 4:"☹️", 5:"😐", 6:"🙂", 7:"😊", 8:"😁", 9:"😆", 10:"🤩"}
     return f"rgb({r}, {g}, {b})", emojis.get(score, "😶")
@@ -69,48 +60,60 @@ with st.sidebar:
 if role == "Patient Portal":
     st.title("👋 Patient Support Portal")
     
-    # Mood Tracker (Placed at top for visual impact)
     st.write("### 📊 Live Energy Tracker")
-    mood_score = st.select_slider("Slide to change mood and color:", options=range(1, 11), value=5)
+    mood_score = st.select_slider("Slide to rate your energy level:", options=range(1, 11), value=5)
     
     current_rgb, current_emoji = get_live_color(mood_score)
     
-    # The Live Updating Circle
     st.markdown(f"""
         <div style="display: flex; justify-content: center; align-items: center; margin: 10px auto;
-            width: 160px; height: 160px; background-color: {current_rgb}; border-radius: 50%; 
-            transition: background-color 0.3s ease-out; box-shadow: 0px 10px 30px {current_rgb}66;
-            border: 6px solid white;">
+            width: 150px; height: 150px; background-color: {current_rgb}; border-radius: 50%; 
+            transition: background-color 0.3s ease; box-shadow: 0px 10px 30px {current_rgb}66;
+            border: 5px solid white;">
             <span style="font-size: 80px;">{current_emoji}</span>
         </div>
         """, unsafe_allow_html=True)
 
-    if st.button("Save Entry", use_container_width=True):
-        new_entry = {"Date": datetime.date.today().strftime("%Y-%m-%d"), "Energy": mood_score}
-        st.session_state.mood_history.append(new_entry)
-        st.success("Mood saved!")
+    if st.button("Save Entry Permanently", use_container_width=True):
+        try:
+            # Fetch existing data, add new row, and update sheet
+            df = conn.read(ttl=0)
+            new_data = pd.DataFrame([{"Date": datetime.date.today().strftime("%Y-%m-%d"), "Energy": mood_score}])
+            updated_df = pd.concat([df, new_data], ignore_index=True)
+            conn.update(data=updated_df)
+            st.success("Successfully saved to Google Sheets!")
+        except Exception as e:
+            st.error(f"Save failed: {e}")
 
     st.divider()
-    
-    # AI Assistant
     st.subheader("🤖 AI Health Assistant")
-    user_msg = st.text_input("Talk to your AI...")
+    user_msg = st.text_input("How are you feeling?")
     if user_msg:
-        with st.spinner("Thinking..."):
-            chat = client.chat.completions.create(
-                messages=[{"role": "system", "content": "You are a helpful health assistant."},
-                          {"role": "user", "content": user_msg}],
-                model="llama-3.3-70b-versatile")
-            st.info(chat.choices[0].message.content)
+        chat = client.chat.completions.create(
+            messages=[{"role": "user", "content": user_msg}],
+            model="llama-3.3-70b-versatile")
+        st.info(chat.choices[0].message.content)
 
 # --- 6. CAREGIVER COACH ---
 else:
     st.title("👩‍⚕️ Caregiver Command Center")
-    if st.session_state.mood_history:
-        last_score = st.session_state.mood_history[-1]['Energy']
+    df = conn.read(ttl="1m")
+    
+    if not df.empty:
+        last_score = int(df.iloc[-1]['Energy'])
         c_rgb, c_emoji = get_live_color(last_score)
-        st.metric("Patient's Current Energy", f"{last_score}/10")
-        st.markdown(f'<div style="width:50px; height:50px; background-color:{c_rgb}; border-radius:50%; border:2px solid white;"></div>', unsafe_allow_html=True)
-        st.line_chart(pd.DataFrame(st.session_state.mood_history).set_index("Date"))
+        
+        st.metric("Latest Patient Energy", f"{last_score}/10")
+        st.markdown(f'<div style="width:60px; height:60px; background-color:{c_rgb}; border-radius:50%; border:3px solid white; display:flex; justify-content:center; align-items:center;"><span style="font-size:30px;">{c_emoji}</span></div>', unsafe_allow_html=True)
+        st.line_chart(df.set_index("Date"))
     else:
-        st.info("No patient data logged yet.")
+        st.info("Waiting for patient data...")
+
+    st.divider()
+    st.subheader("🤖 Caregiver AI Advisor")
+    care_msg = st.text_input("Ask for caregiving advice:")
+    if care_msg:
+        chat = client.chat.completions.create(
+            messages=[{"role": "user", "content": care_msg}],
+            model="llama-3.3-70b-versatile")
+        st.success(chat.choices[0].message.content)
