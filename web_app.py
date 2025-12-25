@@ -12,10 +12,10 @@ def check_password():
         st.session_state.authenticated = False
     if not st.session_state.authenticated:
         st.title("🔐 Secure Access")
-        user_input = st.text_input("Username")
-        pass_input = st.text_input("Password", type="password")
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
         if st.button("Unlock"):
-            if user_input == "AppTest1" and pass_input == "TestPass1":
+            if u == "AppTest1" and p == "TestPass1":
                 st.session_state.authenticated = True
                 st.rerun()
             else:
@@ -27,7 +27,6 @@ if not check_password():
     st.stop()
 
 # --- 2. CONNECTIONS ---
-# Connects to the Google Sheet URL in your 'Secrets'
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
@@ -40,13 +39,10 @@ except Exception:
 def get_live_color(score):
     val = (score - 1) / 9.0
     if val < 0.5:
-        # Purple to Blue
         r, g, b = int(128 * (1 - val * 2)), 0, int(128 + (127 * val * 2))
     else:
-        # Blue to Green
         adj_val = (val - 0.5) * 2
         r, g, b = 0, int(255 * adj_val), int(255 * (1 - adj_val))
-    
     emojis = {1:"😫", 2:"😖", 3:"🙁", 4:"☹️", 5:"😐", 6:"🙂", 7:"😊", 8:"😁", 9:"😆", 10:"🤩"}
     return f"rgb({r}, {g}, {b})", emojis.get(score, "😶")
 
@@ -63,7 +59,7 @@ with st.sidebar:
 if role == "Patient Portal":
     st.title("👋 Patient Support Portal")
     
-    # Live Mood Tracker Section
+    # 1. Mood Tracker Section
     st.write("### 📊 Live Energy Tracker")
     mood_score = st.select_slider("Slide to rate your current energy level:", options=range(1, 11), value=5)
     
@@ -78,6 +74,28 @@ if role == "Patient Portal":
         </div>
         """, unsafe_allow_html=True)
 
+    st.divider()
+
+    # 2. COOPER AI ASSISTANT (Moved Above Save Button)
+    st.subheader("🤖 Chat with Cooper")
+    st.write("Cooper is here to support you. How are you feeling?")
+    
+    patient_msg = st.text_input("Message Cooper:", placeholder="Talk to Cooper...")
+    
+    if patient_msg:
+        with st.spinner("Cooper is thinking..."):
+            chat = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": f"Your name is Cooper. You are a compassionate health assistant. The patient currently feels like a {mood_score}/10 energy level. Provide short, empathetic support and always refer to yourself as Cooper if asked."},
+                    {"role": "user", "content": patient_msg}
+                ],
+                model="llama-3.3-70b-versatile"
+            )
+            st.info(f"*Cooper:* {chat.choices[0].message.content}")
+
+    st.divider()
+
+    # 3. Save Button (Moved to Bottom)
     if st.button("Save Entry Permanently", use_container_width=True):
         try:
             df = conn.read(ttl=0)
@@ -87,25 +105,6 @@ if role == "Patient Portal":
             st.success("Mood safely stored in Google Sheets!")
         except Exception as e:
             st.error(f"Save failed: {e}")
-
-    st.divider()
-
-    # --- ADDED: PATIENT AI ASSISTANT ---
-    st.subheader("🤖 AI Health Assistant")
-    patient_msg = st.text_input("How can I help you today? (e.g., 'I feel tired' or 'Give me a health tip')")
-    
-    if patient_msg:
-        with st.spinner("AI is listening..."):
-            # We give the AI the current slider score as context
-            context = f"The patient currently rates their energy as {mood_score}/10."
-            chat = client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": f"You are a compassionate health assistant. {context} Provide short, supportive advice."},
-                    {"role": "user", "content": patient_msg}
-                ],
-                model="llama-3.3-70b-versatile"
-            )
-            st.info(chat.choices[0].message.content)
 
 # --- 6. CAREGIVER COACH ---
 else:
@@ -122,18 +121,17 @@ else:
                     <span style="font-size:30px;">{c_emoji}</span></div>''', unsafe_allow_html=True)
         st.line_chart(df.set_index("Date"))
     else:
-        st.info("No data available yet. Data will appear once the patient saves an entry.")
+        st.info("No data available yet.")
 
     st.divider()
-    st.subheader("🤖 Caregiver AI Advisor")
-    care_msg = st.text_input("Ask for caregiving advice or trend analysis:")
+    st.subheader("🤖 Caregiver AI Advisor (Cooper)")
+    care_msg = st.text_input("Ask Cooper for caregiving advice:")
     if care_msg:
-        history_context = str(df.tail(5).to_dict()) if not df.empty else "No history."
-        with st.spinner("Analyzing..."):
+        with st.spinner("Cooper is analyzing..."):
             chat = client.chat.completions.create(
                 messages=[
-                    {"role": "system", "content": f"You are a caregiver coach. Recent patient data: {history_context}"},
+                    {"role": "system", "content": "Your name is Cooper. You are a caregiver coach helping someone look after a loved one."},
                     {"role": "user", "content": care_msg}
                 ],
                 model="llama-3.3-70b-versatile")
-            st.success(chat.choices[0].message.content)
+            st.success(f"*Cooper:* {chat.choices[0].message.content}")
