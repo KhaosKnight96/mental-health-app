@@ -2,12 +2,12 @@ import streamlit as st
 import pandas as pd
 import datetime
 from groq import Groq
-from streamlit_gsheets import GSheetsConnection
 
-# --- SIMPLE LOGIN SYSTEM ---
-# Create the connection to your Google Sheet
-conn = st.connection("gsheets", type=GSheetsConnection)
+import streamlit as st
+import pandas as pd
+# (Keep your other imports like 'from groq import Groq' here too)
 
+# --- SIMPLE LOCAL LOGIN ---
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
@@ -15,30 +15,26 @@ def check_password():
     if not st.session_state.authenticated:
         st.title("🔐 Secure Login")
         user_input = st.text_input("Username")
+        # type="password" hides the characters as you type
         pass_input = st.text_input("Password", type="password")
         
         if st.button("Login"):
-            # This pulls the 'users' tab you made on your phone
-            try:
-                df = conn.read(worksheet="users")
-                # Look for the user
-                match = df[(df['username'] == user_input) & (df['password'] == str(pass_input))]
-                
-                if not match.empty:
-                    st.session_state.authenticated = True
-                    st.session_state.username = user_input
-                    st.session_state.role = match.iloc[0]['role']
-                    st.rerun()
-                else:
-                    st.error("Check your username or password.")
-            except Exception as e:
-               st.error(f"Error: {e}")
+            # You can change 'me' and '1234' to whatever you like right here
+            if user_input == "CLoftis96" and pass_input == "1996":
+                st.session_state.authenticated = True
+                st.session_state.username = user_input
+                st.rerun()
+            else:
+                st.error("Invalid username or password.")
         return False
     return True
 
-# This line runs the function and stops the app if login fails
+# This "Gatekeeper" stops the rest of the code from running unless logged in
 if not check_password():
     st.stop()
+
+# --- YOUR MAIN APP STARTS HERE ---
+st.success(f"Welcome back, {st.session_state.username}!")
 
 # --- 1. SET UP THE BRAIN (GROQ) ---
 # Ensure you paste your key correctly here
@@ -161,4 +157,5 @@ elif role == "Caregiver Coach":
         else:
 
             st.warning("No data available to analyze yet.")
+
 
