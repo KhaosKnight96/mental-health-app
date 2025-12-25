@@ -4,36 +4,27 @@ import datetime
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 
-# --- 1. PAGE CONFIG ---
+# --- 1. PAGE CONFIG & LOGIN ---
 st.set_page_config(page_title="AI Health Bridge", page_icon="🧠", layout="wide")
 
-def check_password():
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-    if not st.session_state.authenticated:
-        st.title("🔐 Secure Access")
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
-        if st.button("Unlock"):
-            if u == "AppTest1" and p == "TestPass1":
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Incorrect username or password.")
-        return False
-    return True
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
 
-if not check_password():
+if not st.session_state.authenticated:
+    st.title("🔐 Secure Access")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
+    if st.button("Unlock"):
+        if u == "AppTest1" and p == "TestPass1":
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Invalid credentials")
     st.stop()
 
 # --- 2. CONNECTIONS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
-
-try:
-    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-except Exception:
-    st.error("Missing GROQ_API_KEY in Streamlit Secrets.")
-    st.stop()
+client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
 # --- 3. THE LIVE RGB ENGINE ---
 def get_live_color(score):
@@ -46,92 +37,81 @@ def get_live_color(score):
     emojis = {1:"😫", 2:"😖", 3:"🙁", 4:"☹️", 5:"😐", 6:"🙂", 7:"😊", 8:"😁", 9:"😆", 10:"🤩"}
     return f"rgb({r}, {g}, {b})", emojis.get(score, "😶")
 
-# --- 4. SIDEBAR ---
-with st.sidebar:
-    st.title("Navigation")
-    role = st.sidebar.radio("Select your role:", ["Patient Portal", "Caregiver Coach"])
-    st.divider()
-    if st.button("Log Out"):
-        st.session_state.authenticated = False
-        st.rerun()
+# --- 4. CALLBACK FOR AUTO-CLEARING TEXT ---
+def handle_patient_chat():
+    user_text = st.session_state.patient_input
+    if user_text:
+        # Get AI response
+        chat = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": f"Your name is Cooper. The patient's energy is {st.session_state.get('current_score', 5)}/10. Be supportive."},
+                {"role": "user", "content": user_text}
+            ],
+            model="llama-3.3-70b-versatile"
+        )
+        # Store response and clear input
+        st.session_state.patient_response = chat.choices[0].message.content
+        st.session_state.patient_input = ""
 
-# --- 5. PATIENT PORTAL ---
+# --- 5. NAVIGATION ---
+role = st.sidebar.radio("Select Role:", ["Patient Portal", "Caregiver Coach"])
+
+# --- 6. PATIENT PORTAL ---
 if role == "Patient Portal":
     st.title("👋 Patient Support Portal")
     
-    # 1. Mood Tracker Section
+    # Mood Tracker
     st.write("### 📊 Live Energy Tracker")
-    mood_score = st.select_slider("Slide to rate your current energy level:", options=range(1, 11), value=5)
+    mood_score = st.select_slider("Slide to rate your energy:", options=range(1, 11), value=5)
+    st.session_state.current_score = mood_score # Save for Cooper's context
     
-    current_rgb, current_emoji = get_live_color(mood_score)
-    
+    rgb, emo = get_live_color(mood_score)
     st.markdown(f"""
         <div style="display: flex; justify-content: center; align-items: center; margin: 10px auto;
-            width: 150px; height: 150px; background-color: {current_rgb}; border-radius: 50%; 
-            transition: background-color 0.4s ease; box-shadow: 0px 10px 30px {current_rgb}66;
-            border: 6px solid white;">
-            <span style="font-size: 80px;">{current_emoji}</span>
+            width: 140px; height: 140px; background-color: {rgb}; border-radius: 50%; 
+            transition: background-color 0.4s ease; border: 5px solid white;">
+            <span style="font-size: 70px;">{emo}</span>
         </div>
         """, unsafe_allow_html=True)
 
     st.divider()
 
-    # 2. COOPER AI ASSISTANT (Moved Above Save Button)
+    # Cooper AI Assistant with Auto-Clear
     st.subheader("🤖 Chat with Cooper")
-    st.write("Cooper is here to support you. How are you feeling?")
-    
-    patient_msg = st.text_input("Message Cooper:", placeholder="Talk to Cooper...")
-    
-    if patient_msg:
-        with st.spinner("Cooper is thinking..."):
-            chat = client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": f"Your name is Cooper. You are a compassionate health assistant. The patient currently feels like a {mood_score}/10 energy level. Provide short, empathetic support and always refer to yourself as Cooper if asked."},
-                    {"role": "user", "content": patient_msg}
-                ],
-                model="llama-3.3-70b-versatile"
-            )
-            st.info(f"*Cooper:* {chat.choices[0].message.content}")
+    st.text_input(
+        "Message Cooper:", 
+        key="patient_input", 
+        on_change=handle_patient_chat, 
+        placeholder="Type here and hit Enter..."
+    )
+
+    if "patient_response" in st.session_state:
+        st.info(f"*Cooper:* {st.session_state.patient_response}")
 
     st.divider()
 
-    # 3. Save Button (Moved to Bottom)
+    # Save Entry
     if st.button("Save Entry Permanently", use_container_width=True):
         try:
             df = conn.read(ttl=0)
-            new_data = pd.DataFrame([{"Date": datetime.date.today().strftime("%Y-%m-%d"), "Energy": mood_score}])
-            updated_df = pd.concat([df, new_data], ignore_index=True)
+            new_row = pd.DataFrame([{"Date": datetime.date.today().strftime("%Y-%m-%d"), "Energy": mood_score}])
+            updated_df = pd.concat([df, new_row], ignore_index=True)
             conn.update(data=updated_df)
-            st.success("Mood safely stored in Google Sheets!")
+            st.success("Mood safely stored!")
         except Exception as e:
-            st.error(f"Save failed: {e}")
+            st.error("Google Sheet Save failed. Please check your credentials.")
 
-# --- 6. CAREGIVER COACH ---
+# --- 7. CAREGIVER COACH ---
 else:
     st.title("👩‍⚕️ Caregiver Command Center")
-    df = conn.read(ttl="1m")
-    
-    if not df.empty:
-        last_score = int(df.iloc[-1]['Energy'])
-        c_rgb, c_emoji = get_live_color(last_score)
-        
-        st.metric("Patient's Latest Energy", f"{last_score}/10")
-        st.markdown(f'''<div style="width:60px; height:60px; background-color:{c_rgb}; border-radius:50%; 
-                    display:flex; justify-content:center; align-items:center; border:3px solid white;">
-                    <span style="font-size:30px;">{c_emoji}</span></div>''', unsafe_allow_html=True)
-        st.line_chart(df.set_index("Date"))
-    else:
-        st.info("No data available yet.")
-
-    st.divider()
-    st.subheader("🤖 Caregiver AI Advisor (Cooper)")
-    care_msg = st.text_input("Ask Cooper for caregiving advice:")
-    if care_msg:
-        with st.spinner("Cooper is analyzing..."):
-            chat = client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": "Your name is Cooper. You are a caregiver coach helping someone look after a loved one."},
-                    {"role": "user", "content": care_msg}
-                ],
-                model="llama-3.3-70b-versatile")
-            st.success(f"*Cooper:* {chat.choices[0].message.content}")
+    try:
+        df = conn.read(ttl="1m")
+        if not df.empty:
+            last_val = int(df.iloc[-1]['Energy'])
+            c_rgb, c_emo = get_live_color(last_val)
+            st.metric("Latest Patient Energy", f"{last_val}/10")
+            st.line_chart(df.set_index("Date"))
+        else:
+            st.info("No entries found yet.")
+    except:
+        st.warning("Database connection error.")
