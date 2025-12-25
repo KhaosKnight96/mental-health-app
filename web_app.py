@@ -1,5 +1,4 @@
 
-You sent
 import streamlit as st
 import pandas as pd
 import datetime
@@ -119,3 +118,4 @@ else:
     # Shared Data View
     if st.session_state.mood_history:
         last_score
+
