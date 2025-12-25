@@ -77,7 +77,7 @@ if st.session_state.role == "Patient":
                 )
                 st.write(chat_completion.choices[0].message.content)
             except Exception as e:
-                st.error("AI is resting right now. Check your API key!")
+                st.error("f"AI Error: {e}")
 
 else: # CAREGIVER DASHBOARD
     st.title("👩‍⚕️ Caregiver Command Center")
@@ -96,3 +96,4 @@ else: # CAREGIVER DASHBOARD
     if st.button("Send Encouragement Message"):
         st.balloons()
         st.success("Message sent to Patient!")
+
