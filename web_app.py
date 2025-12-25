@@ -32,7 +32,7 @@ def check_password():
                 else:
                     st.error("Check your username or password.")
             except Exception as e:
-                st.error("Could not connect to the database. Check your Secrets URL.")
+               st.error(f"Error: {e}")
         return False
     return True
 
@@ -161,3 +161,4 @@ elif role == "Caregiver Coach":
         else:
 
             st.warning("No data available to analyze yet.")
+
