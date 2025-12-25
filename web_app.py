@@ -1,4 +1,5 @@
 
+You sent
 import streamlit as st
 import pandas as pd
 import datetime
@@ -36,15 +37,23 @@ except Exception:
 if 'mood_history' not in st.session_state:
     st.session_state.mood_history = []
 
-# --- 3. DYNAMIC MOOD VISUALIZER ---
-def get_mood_emoji(score):
-    if score <= 2: return "🟣 😫", "Purple (Very Low)"
-    elif score <= 4: return "🔵 🙁", "Blue (Low)"
-    elif score <= 6: return "🟡 😐", "Yellow (Neutral)"
-    elif score <= 8: return "🟢 🙂", "Green (Good)"
-    else: return "🌟 😁", "Bright Green (Excellent!)"
+# --- 3. DYNAMIC COLOR & EMOJI ENGINE ---
+def get_mood_visuals(score):
+    # Hex colors: Purple (1) -> Blue (3-4) -> Yellow (5-6) -> Green (9-10)
+    colors = {
+        1: "#800080", 2: "#9932CC",  # Purples
+        3: "#0000FF", 4: "#1E90FF",  # Blues
+        5: "#FFD700", 6: "#FFFF00",  # Yellows
+        7: "#ADFF2F", 8: "#7FFF00",  # Light Greens
+        9: "#32CD32", 10: "#008000"  # Deep Greens
+    }
+    emojis = {
+        1: "😫", 2: "😖", 3: "🙁", 4: "☹️", 5: "😐", 
+        6: "🙂", 7: "😊", 8: "😁", 9: "😆", 10: "🤩"
+    }
+    return colors.get(score, "#FFFFFF"), emojis.get(score, "😶")
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR NAVIGATION ---
 with st.sidebar:
     st.title("Navigation")
     role = st.radio("Select your role:", ["Patient Portal", "Caregiver Coach"])
@@ -70,18 +79,35 @@ if role == "Patient Portal":
 
     st.divider()
 
-    # Animated Mood Tracker
+    # Color-Changing Mood Tracker
     st.write("### 📊 Daily Energy Tracker")
-    mood_score = st.select_slider("Slide to rate your energy:", options=range(1, 11), value=5)
+    mood_score = st.select_slider("Slide to rate your energy level:", options=range(1, 11), value=5)
     
-    emoji, label = get_mood_emoji(mood_score)
-    st.markdown(f"<h1 style='text-align: center; font-size: 70px;'>{emoji}</h1>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align: center;'><b>Current Status: {label}</b></p>", unsafe_allow_html=True)
+    # Get dynamic color and emoji
+    color_hex, emoji_icon = get_mood_visuals(mood_score)
+    
+    # Display the color-changing circle
+    st.markdown(f"""
+        <div style="
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            margin: 20px auto;
+            width: 140px; 
+            height: 140px; 
+            background-color: {color_hex}; 
+            border-radius: 50%; 
+            transition: background-color 0.6s ease;
+            box-shadow: 0px 4px 15px rgba(0,0,0,0.3);
+            border: 5px solid white;">
+            <span style="font-size: 70px;">{emoji_icon}</span>
+        </div>
+        """, unsafe_allow_html=True)
 
     if st.button("Save Entry", use_container_width=True):
         new_entry = {"Date": datetime.date.today().strftime("%Y-%m-%d"), "Energy": mood_score}
         st.session_state.mood_history.append(new_entry)
-        st.success("Mood saved!")
+        st.success(f"Mood saved! Status: {emoji_icon}")
 
     if st.session_state.mood_history:
         st.line_chart(pd.DataFrame(st.session_state.mood_history).set_index("Date"))
@@ -90,26 +116,6 @@ if role == "Patient Portal":
 else:
     st.title("👩‍⚕️ Caregiver Command Center")
     
-    # Data View
+    # Shared Data View
     if st.session_state.mood_history:
-        last_score = st.session_state.mood_history[-1]['Energy']
-        emoji, _ = get_mood_emoji(last_score)
-        st.metric("Latest Patient Mood", f"{last_score}/10", emoji)
-        st.line_chart(pd.DataFrame(st.session_state.mood_history).set_index("Date"))
-    else:
-        st.info("No patient data available yet.")
-
-    st.divider()
-
-    # Caregiver AI Assistant
-    st.subheader("🤖 Caregiver AI Advisor")
-    care_msg = st.text_input("Ask for advice on caregiving or trend analysis:")
-    if care_msg:
-        # Give AI context of patient history if it exists
-        history_context = str(st.session_state.mood_history[-5:]) if st.session_state.mood_history else "No history yet."
-        with st.spinner("Analyzing..."):
-            chat = client.chat.completions.create(
-                messages=[{"role": "system", "content": f"You are a caregiver coach. Patient history: {history_context}"},
-                          {"role": "user", "content": care_msg}],
-                model="llama-3.3-70b-versatile")
-            st.success(chat.choices[0].message.content)
+        last_score
