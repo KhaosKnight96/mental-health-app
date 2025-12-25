@@ -20,7 +20,7 @@ def check_password():
         
         if st.button("Login"):
             # You can change 'me' and '1234' to whatever you like right here
-            if user_input == "AppTester" and pass_input == "TestPassword1":
+            if user_input == "AppTest1" and pass_input == "TestPass1":
                 st.session_state.authenticated = True
                 st.session_state.username = user_input
                 st.rerun()
@@ -157,6 +157,7 @@ elif role == "Caregiver Coach":
         else:
 
             st.warning("No data available to analyze yet.")
+
 
 
 
