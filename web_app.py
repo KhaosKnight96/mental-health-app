@@ -54,7 +54,7 @@ if not st.session_state.authenticated:
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
     if st.button("Unlock"):
-        if u == "AppTest1" and p == "TestPass1":
+        if u == "Admin" and p == "Admin1":
             st.session_state.authenticated = True
             st.rerun()
         else:
@@ -135,3 +135,4 @@ else:
         with st.chat_message(chat["role"]):
             st.write(chat["content"])
     st.text_input("Ask Cooper for advice:", key="caregiver_input", on_change=handle_chat, args=("caregiver",))
+
