@@ -66,7 +66,6 @@ with st.sidebar:
     main_opts = ["Patient Portal", "Caregiver Command"]
     if role == "admin": main_opts.append("🛡️ Admin Panel")
     
-    # Selection from Radio
     mode = st.radio("Go to:", main_opts, key="main_nav")
     st.divider()
     
@@ -162,4 +161,10 @@ elif mode == "Memory Match":
 
 elif mode == "🛡️ Admin Panel":
     st.title("🛡️ Admin Oversight")
-    logs = conn.
+    try:
+        logs_df = conn.read(worksheet="ChatLogs", ttl=0)
+        selected_id = st.selectbox("Filter by Household", ["All"] + list(logs_df['CoupleID'].unique()))
+        view_df = logs_df if selected_id == "All" else logs_df[logs_df['CoupleID'] == selected_id]
+        st.dataframe(view_df.sort_values(by="Timestamp", ascending=False), use_container_width=True)
+    except:
+        st.info("No chat logs found. Ensure you have a 'ChatLogs' tab in your Google Sheet.")
