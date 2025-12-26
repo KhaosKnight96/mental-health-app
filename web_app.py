@@ -4,104 +4,75 @@ import datetime
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 
-# --- 1. CONFIG & SESSION ---
-st.set_page_config(page_title="Health Bridge", page_icon="🧠", layout="wide")
+# --- 1. SETUP ---
+st.set_page_config(page_title="Health Bridge", layout="wide")
 
 if "auth" not in st.session_state:
     st.session_state.auth = {"logged_in": False, "cid": None, "name": None}
-if "chat_log" not in st.session_state:
-    st.session_state.chat_log = []
-if "clara_history" not in st.session_state:
-    st.session_state.clara_history = []
+if "chat_log" not in st.session_state: st.session_state.chat_log = []
+if "clara_history" not in st.session_state: st.session_state.clara_history = []
 
-# --- 2. CONNECTIONS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# --- 3. LOGIN & SIGN-UP GATE ---
+# --- 2. LOGIN & SIGN-UP ---
 if not st.session_state.auth["logged_in"]:
     st.title("🧠 Health Bridge Portal")
+    t1, t2 = st.tabs(["🔐 Login", "📝 Sign Up"])
     
-    # Toggle between Login and Sign Up
-    tab1, tab2 = st.tabs(["🔐 Login", "📝 Create New Account"])
-    
-    with tab1:
-        u_in = st.text_input("Couple ID", key="login_u").strip()
-        p_in = st.text_input("Password", type="password", key="login_p").strip()
-        
-        if st.button("Enter Dashboard", use_container_width=True):
-            try:
-                udf = conn.read(worksheet="Users", ttl=0)
-                m = udf[(udf['Username'].astype(str) == u_in) & (udf['Password'].astype(str) == p_in)]
-                if not m.empty:
-                    st.session_state.auth = {"logged_in": True, "cid": u_in, "name": m.iloc[0]['FullName']}
-                    st.rerun()
-                else: st.error("Invalid Username or Password")
-            except: st.error("Database connection error. Ensure 'Users' tab exists.")
+    with t1:
+        u_l, p_l = st.text_input("ID"), st.text_input("Pass", type="password")
+        if st.button("Enter"):
+            udf = conn.read(worksheet="Users", ttl=0)
+            m = udf[(udf['Username'].astype(str)==u_l) & (udf['Password'].astype(str)==p_l)]
+            if not m.empty:
+                st.session_state.auth = {"logged_in": True, "cid": u_l, "name": m.iloc[0]['FullName']}
+                st.rerun()
+            else: st.error("Invalid credentials")
 
-    with tab2:
-        st.subheader("Register your Household")
-        new_u = st.text_input("Choose a Couple ID (e.g., AB1)", key="reg_u").strip()
-        new_p = st.text_input("Choose a Password", type="password", key="reg_p").strip()
-        new_name = st.text_input("Your Names (e.g., Alice & Bob)", key="reg_n").strip()
-        
-        if st.button("Register & Login", use_container_width=True):
-            if new_u and new_p and new_name:
-                try:
-                    udf = conn.read(worksheet="Users", ttl=0)
-                    if new_u in udf['Username'].astype(str).values:
-                        st.error("This Couple ID is already taken. Please choose another.")
-                    else:
-                        # Append new user to the Google Sheet
-                        new_user = pd.DataFrame([{"Username": new_u, "Password": new_p, "FullName": new_name}])
-                        updated_udf = pd.concat([udf, new_user], ignore_index=True)
-                        conn.update(worksheet="Users", data=updated_udf)
-                        
-                        # Auto-login after registration
-                        st.session_state.auth = {"logged_in": True, "cid": new_u, "name": new_name}
-                        st.success("Account created successfully!")
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Registration failed: {e}")
+    with t2:
+        n_u = st.text_input("New ID").strip()
+        n_p = st.text_input("New Pass", type="password").strip()
+        n_n = st.text_input("Names (e.g. Bob & Sue)").strip()
+        if st.button("Create Account"):
+            udf = conn.read(worksheet="Users", ttl=0)
+            if n_u in udf['Username'].astype(str).values: st.error("ID taken")
             else:
-                st.warning("Please fill in all fields.")
+                new_u = pd.DataFrame([{"Username": n_u, "Password": n_p, "FullName": n_n}])
+                conn.update(worksheet="Users", data=pd.concat([udf, new_u], ignore_index=True))
+                st.session_state.auth = {"logged_in": True, "cid": n_u, "name": n_n}
+                st.rerun()
     st.stop()
 
-# --- 4. DASHBOARD LOGIC (Same as before) ---
-cid = st.session_state.auth.get("cid")
-cname = st.session_state.auth.get("name")
+# --- 3. SESSION VARS ---
+cid, cname = st.session_state.auth["cid"], st.session_state.auth["name"]
 
 with st.sidebar:
     st.subheader(f"🏠 {cname}")
-    mode = st.radio("Switch View:", ["Patient Portal", "Caregiver Command"])
-    if st.button("Logout"):
+    mode = st.radio("Portal:", ["Patient", "Caregiver"])
+    if st.button("Log Out"):
         st.session_state.auth = {"logged_in": False}
-        st.session_state.chat_log = []
-        st.session_state.clara_history = []
         st.rerun()
 
-# --- 5. PORTALS (Cooper & Clara logic remains identical) ---
-if mode == "Patient Portal":
+# --- 4. PORTALS ---
+if mode == "Patient":
     st.title("👋 Cooper Support")
-    score = st.select_slider("Energy Level", options=range(1,11), value=5)
+    score = st.select_slider("Energy", options=range(1,11), value=5)
     
-    # Mood Circle Visual
-    def get_live_color(s):
-        val = (s - 1) / 9.0
-        r, g, b = (int(128 * (1 - val * 2)), 0, int(128 + (127 * val * 2))) if val < 0.5 else (0, int(255 * (val - 0.5) * 2), int(255 * (1 - (val - 0.5) * 2)))
-        emojis = {1:"😫", 2:"😖", 3:"🙁", 4:"☹️", 5:"😐", 6:"🙂", 7:"😊", 8:"😁", 9:"😆", 10:"🤩"}
-        return f"rgb({r}, {g}, {b})", emojis.get(s, "😶")
-
-    rgb, emo = get_live_color(score)
-    st.markdown(f'<div style="margin:10px auto; width:80px; height:80px; background-color:{rgb}; border-radius:50%; display:flex; justify-content:center; align-items:center; border:3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.2);"><span style="font-size:40px;">{emo}</span></div>', unsafe_allow_html=True)
+    # Mood Circle
+    v = (score-1)/9.0
+    rgb = f"rgb({int(128*(1-v*2))},0,{int(128+127*v*2)})" if v<0.5 else f"rgb(0,{int(255*(v-0.5)*2)},{int(255*(1-(v-0.5)*2))})"
+    st.markdown(f'<div style="margin:10px auto; width:60px; height:60px; background-color:{rgb}; border-radius:50%; border:2px solid white;"></div>', unsafe_allow_html=True)
 
     for m in st.session_state.chat_log:
         with st.chat_message("user" if m["type"]=="P" else "assistant"): st.write(m["msg"])
-    msg = st.chat_input("Talk to Cooper...")
-    if msg:
-        st.session_state.chat_log.append({"type": "P", "msg": msg})
-        msgs = [{"role":"system","content":f"Your name is Cooper. Assistant for {cname}."}]
-        for m in st.session_state.chat_log[-6:]: msgs.append({"role": "user" if m["type"]=="P" else "assistant", "content": m["msg"]})
+    
+    p_in = st.chat_input("Talk to Cooper...")
+    if p_in:
+        st.session_state.chat_log.append({"type": "P", "msg": p_in})
+        msgs = [{"role":"system","content":f"You are Cooper, assistant for {cname}."}]
+        for m in st.session_state.chat_log[-6:]:
+            msgs.append({"role": "user" if m["type"]=="P" else "assistant", "content": m["msg"]})
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs)
         st.session_state.chat_log.append({"type": "C", "msg": res.choices[0].message.content})
         st.rerun()
@@ -110,7 +81,7 @@ if mode == "Patient Portal":
         df = conn.read(worksheet="Sheet1", ttl=0)
         new = pd.DataFrame([{"Date": datetime.date.today().strftime("%Y-%m-%d"), "Energy": score, "CoupleID": cid}])
         conn.update(worksheet="Sheet1", data=pd.concat([df, new], ignore_index=True))
-        st.success("Successfully Saved!")
+        st.success("Saved!")
 
 else:
     st.title("👩‍⚕️ Clara Analyst")
@@ -120,7 +91,13 @@ else:
     
     for m in st.session_state.clara_history:
         with st.chat_message(m["role"]): st.write(m["content"])
-    c_msg = st.chat_input("Ask Clara...")
-    if c_msg:
-        p_history = "\n".join([f"Patient: {m['msg']}" for m in st.session_state.chat_log if m['type']=='P'][-5:])
-        prompt = f"You are Clara, health analyst for {
+    
+    c_in = st.chat_input("Ask Clara...")
+    if c_in:
+        hist = "\n".join([f"Patient: {m['msg']}" for m in st.session_state.chat_log if m['type']=='P'][-5:])
+        prompt = f"You are Clara for {cname}. Chat history: {hist}. Logs: {f_data.tail(5).to_string()}"
+        msgs = [{"role":"system", "content": prompt}] + st.session_state.clara_history[-4:] + [{"role": "user", "content": c_in}]
+        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs)
+        st.session_state.clara_history.append({"role": "user", "content": c_in})
+        st.session_state.clara_history.append({"role": "assistant", "content": res.choices[0].message.content})
+        st.rerun()
