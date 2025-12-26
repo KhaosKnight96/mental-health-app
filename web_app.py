@@ -29,6 +29,7 @@ def log_to_master(cid, user_type, speaker, message):
     except: pass
 
 def sync_nav():
+    """Ensures Zen Zone resets when clicking Patient or Caregiver portals."""
     st.session_state.zen_nav = "--- Choose ---"
 
 # --- 3. LOGIN & SIGN-UP ---
@@ -41,7 +42,7 @@ if not st.session_state.auth["logged_in"]:
         udf = conn.read(worksheet="Users", ttl=0)
         udf.columns = [str(c).strip().title() for c in udf.columns] 
     except:
-        st.error("Database connection failed.")
+        st.error("Database connection failed. Please check your Google Sheet.")
         st.stop()
 
     with t1:
@@ -168,19 +169,27 @@ elif mode == "Breathing Space":
 
 elif mode == "Snake":
     st.title("🐍 Zen Snake")
-    st.write("Use **Arrow Keys** to move. (Click 'Reset' if board doesn't appear)")
+    st.write("Use **Arrow Keys** to move. Eat the orange fruit to grow!")
     
-    # More robust JS with a background and simplified logic
     snake_html = """
-    <div style="text-align:center;">
-        <canvas id="gameCanvas" width="400" height="400" style="border:5px solid #219EBC; border-radius:10px; background:#fafafa;"></canvas>
-        <h3 id="scoreText" style="font-family:sans-serif;">Score: 0</h3>
+    <div style="position: relative; width: 400px; margin: 0 auto;">
+        <canvas id="gameCanvas" width="400" height="400" style="border:5px solid #219EBC; border-radius:15px; background:#fafafa; display: block;"></canvas>
+        <div id="gameOverScreen" style="display: none; position: absolute; top: 0; left: 0; width: 400px; height: 400px; background: rgba(2, 48, 71, 0.9); color: white; border-radius: 10px; flex-direction: column; justify-content: center; align-items: center; text-align: center; font-family: sans-serif;">
+            <h1 style="font-size: 40px; margin-bottom: 10px;">GAME OVER</h1>
+            <p id="finalScore" style="font-size: 20px; margin-bottom: 20px;">Score: 0</p>
+            <button onclick="location.reload()" style="padding: 12px 25px; font-size: 18px; cursor: pointer; background-color: #fb8500; border: none; color: white; border-radius: 5px; font-weight: bold;">Try Again</button>
+        </div>
+        <h3 id="scoreText" style="font-family:sans-serif; text-align: center; color: #023047;">Current Score: 0</h3>
     </div>
+
     <script>
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
     const scoreText = document.getElementById("scoreText");
-    let box = 20, score = 0, d;
+    const gameOverScreen = document.getElementById("gameOverScreen");
+    const finalScoreText = document.getElementById("finalScore");
+
+    let box = 20, score = 0, d, game;
     let snake = [{x: 9 * box, y: 10 * box}];
     let food = {x: Math.floor(Math.random()*19)*box, y: Math.floor(Math.random()*19)*box};
 
@@ -193,35 +202,48 @@ elif mode == "Snake":
 
     function draw() {
         ctx.fillStyle = "#fafafa"; ctx.fillRect(0,0,400,400);
+        
         for(let i=0; i<snake.length; i++){
             ctx.fillStyle = (i==0) ? "#219EBC" : "#8ECAE6";
             ctx.fillRect(snake[i].x, snake[i].y, box, box);
+            ctx.strokeStyle = "#fafafa";
+            ctx.strokeRect(snake[i].x, snake[i].y, box, box);
         }
-        ctx.fillStyle = "#fb8500"; ctx.fillRect(food.x, food.y, box, box);
+
+        ctx.fillStyle = "#fb8500";
+        ctx.beginPath();
+        ctx.arc(food.x + box/2, food.y + box/2, box/2, 0, Math.PI*2);
+        ctx.fill();
 
         let headX = snake[0].x, headY = snake[0].y;
         if(d == "LEFT") headX -= box; if(d == "UP") headY -= box;
         if(d == "RIGHT") headX += box; if(d == "DOWN") headY += box;
 
         if(headX == food.x && headY == food.y){
-            score++; scoreText.innerHTML = "Score: " + score;
+            score++; 
+            scoreText.innerHTML = "Current Score: " + score;
             food = {x: Math.floor(Math.random()*19)*box, y: Math.floor(Math.random()*19)*box};
         } else { snake.pop(); }
 
         let newHead = {x: headX, y: headY};
+
         if(headX < 0 || headX >= 400 || headY < 0 || headY >= 400 || collision(newHead, snake)){
-            clearInterval(game); alert("Game Over! Score: " + score); location.reload();
+            clearInterval(game);
+            finalScoreText.innerHTML = "Final Score: " + score;
+            gameOverScreen.style.display = "flex";
         }
         snake.unshift(newHead);
     }
+
     function collision(head, arr){
         for(let i=0; i<arr.length; i++){ if(head.x == arr[i].x && head.y == arr[i].y) return true; }
         return false;
     }
-    let game = setInterval(draw, 100);
+
+    game = setInterval(draw, 100);
     </script>
     """
-    st.components.v1.html(snake_html, height=500)
+    st.components.v1.html(snake_html, height=550)
 
 elif mode == "🛡️ Admin Panel":
     st.title("🛡️ Admin Oversight")
