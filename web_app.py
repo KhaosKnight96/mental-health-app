@@ -75,50 +75,51 @@ cid, cname, role = st.session_state.auth["cid"], st.session_state.auth["name"], 
 
 with st.sidebar:
     st.subheader(f"🏠 {cname}")
-    options = ["Patient Portal", "Caregiver Command"]
+    options = ["Patient Portal", "Caregiver Command", "Zen Zone 🧩"] # Added Zen Zone
     if role == "admin":
         options.append("🛡️ Admin Panel")
     
     mode = st.radio("Go to:", options)
-    if st.button("Log Out"):
-        st.session_state.auth = {"logged_in": False}
-        st.rerun()
 
-# --- 5. PORTALS ---
-if mode == "Patient Portal":
-    st.title("👋 Cooper Support")
-    score = st.select_slider("Energy (1-11)", options=range(1,12), value=6)
-    
-    for m in st.session_state.chat_log:
-        with st.chat_message("user" if m["type"]=="P" else "assistant"): st.write(m["msg"])
-    
-    p_in = st.chat_input("Message Cooper...")
-    if p_in:
-        log_to_master(cid, "Patient", "User", p_in) # LOGGING
-        st.session_state.chat_log.append({"type": "P", "msg": p_in})
-        msgs = [{"role":"system","content":f"You are Cooper for {cname}."}] + [{"role": "user" if m["type"]=="P" else "assistant", "content": m["msg"]} for m in st.session_state.chat_log[-6:]]
-        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs).choices[0].message.content
-        log_to_master(cid, "Patient", "Cooper", res) # LOGGING
-        st.session_state.chat_log.append({"type": "C", "msg": res})
-        st.rerun()
+# --- 5. ZEN ZONE (MINIGAME) ---
+if mode == "Zen Zone 🧩":
+    st.title("🧩 Zen Memory Match")
+    st.write("A quick mental break. Find the matching pairs!")
 
-elif mode == "Caregiver Command":
-    st.title("👩‍⚕️ Clara Analyst")
-    all_d = conn.read(worksheet="Sheet1", ttl=0)
-    f_data = all_d[all_d['CoupleID'].astype(str) == str(cid)]
-    if not f_data.empty: st.line_chart(f_data.set_index("Date")['Energy'])
-    
-    c_in = st.chat_input("Ask Clara...")
-    if c_in:
-        log_to_master(cid, "Caregiver", "User", c_in) # LOGGING
-        prompt = f"You are Clara for {cname}. Logs: {f_data.tail(5).to_string()}"
-        msgs = [{"role":"system", "content": prompt}] + st.session_state.clara_history[-4:] + [{"role": "user", "content": c_in}]
-        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs).choices[0].message.content
-        log_to_master(cid, "Caregiver", "Clara", res) # LOGGING
-        st.session_state.clara_history.append({"role": "user", "content": c_in})
-        st.session_state.clara_history.append({"role": "assistant", "content": res})
-        st.rerun()
+    # Initialize Game State
+    if "cards" not in st.session_state:
+        icons = list("🌟🍀🎈💎🌈🦄🍎🎨") * 2
+        import random
+        random.shuffle(icons)
+        st.session_state.cards = icons
+        st.session_state.flipped = []
+        st.session_state.matched = []
 
+    # Display Grid
+    cols = st.columns(4)
+    for i, icon in enumerate(st.session_state.cards):
+        with cols[i % 4]:
+            if i in st.session_state.matched:
+                st.button(icon, key=f"matched_{i}", disabled=True)
+            elif i in st.session_state.flipped:
+                st.button(icon, key=f"flipped_{i}")
+            else:
+                if st.button("❓", key=f"card_{i}"):
+                    st.session_state.flipped.append(i)
+                    if len(st.session_state.flipped) == 2:
+                        idx1, idx2 = st.session_state.flipped
+                        if st.session_state.cards[idx1] == st.session_state.cards[idx2]:
+                            st.session_state.matched.extend([idx1, idx2])
+                        st.session_state.flipped = []
+                    st.rerun()
+
+    if st.button("Reset Game"):
+        del st.session_state.cards
+        st.rerun()
+        
+    if len(st.session_state.matched) == len(st.session_state.cards):
+        st.balloons()
+        st.success("Great job! You've cleared your mind.")
 # --- 6. THE ADMIN PANEL ---
 elif mode == "🛡️ Admin Panel":
     st.title("🛡️ System Administration")
@@ -138,3 +139,4 @@ elif mode == "🛡️ Admin Panel":
             
     except:
         st.info("No chat logs found yet. Ensure you have a 'ChatLogs' tab in your Google Sheet.")
+
