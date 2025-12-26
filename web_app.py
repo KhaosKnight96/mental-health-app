@@ -90,12 +90,61 @@ with st.sidebar:
 
 # --- 5. PORTAL LOGIC ---
 
-# ... [Keep Patient Portal and Caregiver Command code exactly as it was] ...
+if mode == "Patient Portal":
+    st.title("👋 Cooper Support")
+    score = st.select_slider("Energy (1-11)", options=range(1,12), value=6)
+    v = (score-1)/10.0 
+    rgb = f"rgb({int(128*(1-v*2))},0,{int(128+127*v*2)})" if v < 0.5 else f"rgb(0,{int(255*(v-0.5)*2)},{int(255*(1-(v-0.5)*2))})"
+    emojis = {1:"😫", 2:"😖", 3:"🙁", 4:"☹️", 5:"😟", 6:"😐", 7:"🙂", 8:"😊", 9:"😁", 10:"😆", 11:"🤩"}
+    st.markdown(f'<div style="display:flex;justify-content:center;margin:20px 0;"><div style="width:80px;height:80px;background-color:{rgb};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:40px;border:3px solid white;box-shadow:0 4px 8px rgba(0,0,0,0.2);">{emojis.get(score, "😐")}</div></div>', unsafe_allow_html=True)
+
+    for m in st.session_state.chat_log:
+        with st.chat_message("user" if m["type"]=="P" else "assistant"): st.write(m["msg"])
+    
+    p_in = st.chat_input("Message Cooper...")
+    if p_in:
+        log_to_master(cid, "Patient", "User", p_in)
+        st.session_state.chat_log.append({"type": "P", "msg": p_in})
+        msgs = [{"role":"system","content":f"You are Cooper for {cname}."}] + [{"role": "user" if m["type"]=="P" else "assistant", "content": m["msg"]} for m in st.session_state.chat_log[-6:]]
+        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs).choices[0].message.content
+        log_to_master(cid, "Patient", "Cooper", res)
+        st.session_state.chat_log.append({"type": "C", "msg": res})
+        st.rerun()
+
+    if st.button("Save Daily Score", use_container_width=True):
+        df = conn.read(worksheet="Sheet1", ttl=0)
+        new = pd.DataFrame([{"Date": datetime.date.today().strftime("%Y-%m-%d"), "Energy": score, "CoupleID": cid}])
+        conn.update(worksheet="Sheet1", data=pd.concat([df, new], ignore_index=True))
+        st.success("Entry Saved!")
+
+elif mode == "Caregiver Command":
+    st.title("👩‍⚕️ Clara Analyst")
+    try:
+        all_d = conn.read(worksheet="Sheet1", ttl=0)
+        f_data = all_d[all_d['CoupleID'].astype(str) == str(cid)]
+        if not f_data.empty: 
+            st.line_chart(f_data.set_index("Date")['Energy'])
+    except:
+        st.info("No tracking data available yet.")
+
+    for m in st.session_state.clara_history:
+        with st.chat_message(m["role"]): st.write(m["content"])
+
+    c_in = st.chat_input("Ask Clara...")
+    if c_in:
+        log_to_master(cid, "Caregiver", "User", c_in)
+        # Context building for Clara
+        history_context = f_data.tail(5).to_string() if 'f_data' in locals() and not f_data.empty else "No data yet."
+        prompt = f"You are Clara for {cname}. Logs: {history_context}"
+        msgs = [{"role":"system", "content": prompt}] + st.session_state.clara_history[-4:] + [{"role": "user", "content": c_in}]
+        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs).choices[0].message.content
+        log_to_master(cid, "Caregiver", "Clara", res)
+        st.session_state.clara_history.append({"role": "user", "content": c_in})
+        st.session_state.clara_history.append({"role": "assistant", "content": res})
+        st.rerun()
 
 elif mode == "Memory Match":
     st.title("🧩 Zen Memory Match")
-    
-    # UPDATED BACK BUTTON: Uses the callback function to avoid the Error
     if st.button("← Back to Portal", on_click=reset_zen):
         st.rerun()
         
@@ -105,4 +154,31 @@ elif mode == "Memory Match":
         st.session_state.cards = icons
         st.session_state.flipped, st.session_state.matched = [], []
 
-    # ... [Rest of Memory Match logic remains the same] ...
+    cols = st.columns(4)
+    for i, icon in enumerate(st.session_state.cards):
+        with cols[i % 4]:
+            if i in st.session_state.matched: st.button(icon, key=f"m_{i}", disabled=True)
+            elif i in st.session_state.flipped: st.button(icon, key=f"f_{i}")
+            else:
+                if st.button("❓", key=f"c_{i}"):
+                    st.session_state.flipped.append(i)
+                    if len(st.session_state.flipped) == 2:
+                        i1, i2 = st.session_state.flipped
+                        if st.session_state.cards[i1] == st.session_state.cards[i2]: 
+                            st.session_state.matched.extend([i1, i2])
+                        st.session_state.flipped = []
+                    st.rerun()
+    if st.button("Reset Game"): 
+        del st.session_state.cards
+        st.rerun()
+
+elif mode == "🛡️ Admin Panel":
+    st.title("🛡️ Admin Oversight")
+    try:
+        logs_df = conn.read(worksheet="ChatLogs", ttl=0)
+        id_list = ["All"] + list(logs_df['CoupleID'].unique())
+        selected_id = st.selectbox("Filter by Household", id_list)
+        view_df = logs_df if selected_id == "All" else logs_df[logs_df['CoupleID'] == selected_id]
+        st.dataframe(view_df.sort_values(by="Timestamp", ascending=False), use_container_width=True)
+    except:
+        st.info("No chat logs found yet.")
