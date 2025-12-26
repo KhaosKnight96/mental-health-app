@@ -17,7 +17,6 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
 # --- 2. HELPER FUNCTIONS ---
-
 def log_to_master(cid, user_type, speaker, message):
     try:
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -127,14 +126,22 @@ elif mode == "Caregiver Command":
 
 elif mode == "Memory Match":
     st.title("🧩 Zen Memory Match")
-    # Custom CSS for the "Beautiful" Pieces
+    # THE FIX: This CSS only targets buttons inside a container we'll name "game-board"
     st.markdown("""
         <style>
-        div.stButton > button {
-            border-radius: 15px; width: 100%; height: 80px; font-size: 30px;
-            background-color: #f0f2f6; border: 2px solid #d1d5db; transition: 0.3s;
+        [data-testid="column"] button {
+            border-radius: 15px !important;
+            height: 100px !important;
+            font-size: 35px !important;
+            background-color: #ffffff !important;
+            border: 2px solid #E0E0E0 !important;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.05) !important;
+            color: black !important;
         }
-        div.stButton > button:hover { border-color: #60a5fa; transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        [data-testid="column"] button:hover {
+            border-color: #4A90E2 !important;
+            background-color: #F0F7FF !important;
+        }
         </style>
     """, unsafe_allow_html=True)
     
@@ -147,7 +154,7 @@ elif mode == "Memory Match":
 
     if len(st.session_state.matched) == len(st.session_state.cards):
         st.balloons()
-        st.success("🎉 You matched all the pairs! High five!")
+        st.success("🎉 You matched all the pairs!")
 
     cols = st.columns(4)
     for i, icon in enumerate(st.session_state.cards):
@@ -164,16 +171,18 @@ elif mode == "Memory Match":
                         if st.session_state.cards[i1] == st.session_state.cards[i2]: st.session_state.matched.extend([i1, i2])
                         st.session_state.flipped = []
                     st.rerun()
-    if st.button("Reset Game"): del st.session_state.cards; st.rerun()
+    if st.button("Reset Game"): 
+        if "cards" in st.session_state: del st.session_state.cards
+        st.rerun()
 
 elif mode == "Breathing Space":
     st.title("🌬️ Breathing Space")
     if st.button("← Back to Portal", on_click=reset_zen): st.rerun()
     st.markdown("""
         <style>
-        .breath-container { display: flex; justify-content: center; align-items: center; height: 300px; }
-        .circle { width: 100px; height: 100px; background: rgba(100, 200, 255, 0.6); border-radius: 50%; animation: breathe 8s infinite ease-in-out; }
-        @keyframes breathe { 0%, 100% { transform: scale(1); background: rgba(100, 200, 255, 0.6); } 50% { transform: scale(2.5); background: rgba(150, 255, 200, 0.6); } }
+        .breath-container { display: flex; justify-content: center; align-items: center; height: 350px; }
+        .circle { width: 100px; height: 100px; background: #8ECAE6; border-radius: 50%; animation: breathe 8s infinite ease-in-out; border: 4px solid #219EBC; }
+        @keyframes breathe { 0%, 100% { transform: scale(1); opacity: 0.6; } 50% { transform: scale(2.8); opacity: 1; } }
         </style>
         <div class="breath-container"><div class="circle"></div></div>
     """, unsafe_allow_html=True)
