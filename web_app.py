@@ -170,7 +170,7 @@ elif mode == "Snake":
     st.title("🐍 Zen Snake")
     st.write("Desktop: **Arrow Keys**. Mobile: **Swipe** the game board.")
     
-    snake_swipe_html = """
+    snake_swipe_haptic_html = """
     <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif; touch-action: none;">
         <div id="gameContainer" style="position: relative; width: 320px; height: 320px; touch-action: none;">
             <canvas id="gameCanvas" width="320" height="320" style="border:4px solid #219EBC; border-radius:12px; background:#fafafa; touch-action: none;"></canvas>
@@ -196,7 +196,6 @@ elif mode == "Snake":
 
     // SWIPE LOGIC
     let touchstartX = 0, touchstartY = 0, touchendX = 0, touchendY = 0;
-
     const container = document.getElementById('gameContainer');
 
     container.addEventListener('touchstart', e => {
@@ -213,7 +212,6 @@ elif mode == "Snake":
     function handleGesture() {
         let dx = touchendX - touchstartX;
         let dy = touchendY - touchstartY;
-        
         if (Math.abs(dx) > Math.abs(dy)) {
             if (dx > 30 && d != 'LEFT') d = 'RIGHT';
             else if (dx < -30 && d != 'RIGHT') d = 'LEFT';
@@ -246,13 +244,17 @@ elif mode == "Snake":
         if(d == "RIGHT") headX += box; if(d == "DOWN") headY += box;
 
         if(headX == food.x && headY == food.y){
-            score++; scoreText.innerHTML = "Score: " + score;
+            score++; 
+            scoreText.innerHTML = "Score: " + score;
+            if (window.navigator.vibrate) window.navigator.vibrate(50); // Short haptic pulse
             food = {x: Math.floor(Math.random()*19)*box, y: Math.floor(Math.random()*19)*box};
         } else { snake.pop(); }
 
         let h = {x: headX, y: headY};
         if(headX < 0 || headX >= 320 || headY < 0 || headY >= 320 || snake.some(s=>s.x==h.x && s.y==h.y)){
-            clearInterval(game); finalScoreText.innerHTML = "Final Score: " + score;
+            clearInterval(game);
+            finalScoreText.innerHTML = "Final Score: " + score;
+            if (window.navigator.vibrate) window.navigator.vibrate([200, 100, 200]); // Long "fail" vibration
             gameOverScreen.style.display = "flex";
         }
         snake.unshift(h);
@@ -260,7 +262,7 @@ elif mode == "Snake":
     game = setInterval(draw, 125);
     </script>
     """
-    st.components.v1.html(snake_swipe_html, height=450)
+    st.components.v1.html(snake_swipe_haptic_html, height=450)
 
 elif mode == "🛡️ Admin Panel":
     st.title("🛡️ Admin Oversight")
