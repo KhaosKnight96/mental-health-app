@@ -16,38 +16,45 @@ if "clara_history" not in st.session_state: st.session_state.clara_history = []
 conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# --- 2. LOGIN & SIGN-UP ---
+# --- 3. LOGIN & SIGN-UP (Robust Version) ---
 if not st.session_state.auth["logged_in"]:
     st.title("🧠 Health Bridge Portal")
     t1, t2 = st.tabs(["🔐 Login", "📝 Sign Up"])
     now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     
+    try:
+        udf = conn.read(worksheet="Users", ttl=0)
+        # Standardize column names to avoid KeyErrors
+        udf.columns = [c.strip().capitalize() for c in udf.columns]
+    except Exception as e:
+        st.error(f"Could not read 'Users' tab. Please check your Google Sheet. Error: {e}")
+        st.stop()
+
     with t1:
-        u_l, p_l = st.text_input("Couple ID", key="l_u"), st.text_input("Password", type="password", key="l_p")
+        u_l = st.text_input("Couple ID", key="l_u")
+        p_l = st.text_input("Password", type="password", key="l_p")
         if st.button("Enter Dashboard"):
-            udf = conn.read(worksheet="Users", ttl=0)
+            # Check for credentials using the standardized column names
             m = udf[(udf['Username'].astype(str)==u_l) & (udf['Password'].astype(str)==p_l)]
             if not m.empty:
-                udf.loc[udf['Username'].astype(str) == u_l, 'LastLogin'] = now_ts
+                udf.loc[udf['Username'].astype(str) == u_l, 'Lastlogin'] = now_ts
                 conn.update(worksheet="Users", data=udf)
-                st.session_state.auth = {"logged_in": True, "cid": u_l, "name": m.iloc[0]['FullName']}
-                # Clear any lingering logs from previous sessions
-                st.session_state.chat_log = []
-                st.session_state.clara_history = []
+                u_role = m.iloc[0]['Role'] if 'Role' in m.columns else "user"
+                st.session_state.auth = {"logged_in": True, "cid": u_l, "name": m.iloc[0]['Fullname'], "role": u_role}
+                st.session_state.chat_log, st.session_state.clara_history = [], []
                 st.rerun()
             else: st.error("Invalid credentials")
-
+    
     with t2:
-        n_u, n_p, n_n = st.text_input("New ID"), st.text_input("New Pass", type="password"), st.text_input("Names")
+        n_u = st.text_input("New ID").strip()
+        n_p = st.text_input("New Pass", type="password").strip()
+        n_n = st.text_input("Names").strip()
         if st.button("Create Account"):
-            udf = conn.read(worksheet="Users", ttl=0)
             if n_u in udf['Username'].astype(str).values: st.error("ID taken")
             else:
-                new_row = pd.DataFrame([{"Username": n_u, "Password": n_p, "FullName": n_n, "LastLogin": now_ts}])
+                new_row = pd.DataFrame([{"Username": n_u, "Password": n_p, "Fullname": n_n, "Lastlogin": now_ts, "Role": "user"}])
                 conn.update(worksheet="Users", data=pd.concat([udf, new_row], ignore_index=True))
-                st.session_state.auth = {"logged_in": True, "cid": n_u, "name": n_n}
-                st.session_state.chat_log = []
-                st.session_state.clara_history = []
+                st.session_state.auth = {"logged_in": True, "cid": n_u, "name": n_n, "role": "user"}
                 st.rerun()
     st.stop()
 
@@ -129,3 +136,4 @@ else:
         st.session_state.clara_history.append({"role": "user", "content": c_in})
         st.session_state.clara_history.append({"role": "assistant", "content": res.choices[0].message.content})
         st.rerun()
+
