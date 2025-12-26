@@ -15,17 +15,23 @@ if "clara_history" not in st.session_state: st.session_state.clara_history = []
 conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# --- 2. LOGIN & SIGN-UP ---
+# --- 2. LOGIN & SIGN-UP (Updated with Timestamps) ---
 if not st.session_state.auth["logged_in"]:
     st.title("🧠 Health Bridge Portal")
     t1, t2 = st.tabs(["🔐 Login", "📝 Sign Up"])
     
+    now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
     with t1:
         u_l, p_l = st.text_input("ID"), st.text_input("Pass", type="password")
         if st.button("Enter"):
             udf = conn.read(worksheet="Users", ttl=0)
             m = udf[(udf['Username'].astype(str)==u_l) & (udf['Password'].astype(str)==p_l)]
             if not m.empty:
+                # Update LastLogin in the dataframe
+                udf.loc[udf['Username'] == u_l, 'LastLogin'] = now_ts
+                conn.update(worksheet="Users", data=udf)
+                
                 st.session_state.auth = {"logged_in": True, "cid": u_l, "name": m.iloc[0]['FullName']}
                 st.rerun()
             else: st.error("Invalid credentials")
@@ -38,21 +44,11 @@ if not st.session_state.auth["logged_in"]:
             udf = conn.read(worksheet="Users", ttl=0)
             if n_u in udf['Username'].astype(str).values: st.error("ID taken")
             else:
-                new_u = pd.DataFrame([{"Username": n_u, "Password": n_p, "FullName": n_n}])
+                new_u = pd.DataFrame([{"Username": n_u, "Password": n_p, "FullName": n_n, "LastLogin": now_ts}])
                 conn.update(worksheet="Users", data=pd.concat([udf, new_u], ignore_index=True))
                 st.session_state.auth = {"logged_in": True, "cid": n_u, "name": n_n}
                 st.rerun()
     st.stop()
-
-# --- 3. SESSION VARS ---
-cid, cname = st.session_state.auth["cid"], st.session_state.auth["name"]
-
-with st.sidebar:
-    st.subheader(f"🏠 {cname}")
-    mode = st.radio("Portal:", ["Patient", "Caregiver"])
-    if st.button("Log Out"):
-        st.session_state.auth = {"logged_in": False}
-        st.rerun()
 
 # --- 4. PORTALS ---
 if mode == "Patient":
@@ -101,3 +97,4 @@ else:
         st.session_state.clara_history.append({"role": "user", "content": c_in})
         st.session_state.clara_history.append({"role": "assistant", "content": res.choices[0].message.content})
         st.rerun()
+
