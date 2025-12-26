@@ -41,7 +41,7 @@ if not st.session_state.auth["logged_in"]:
         udf = conn.read(worksheet="Users", ttl=0)
         udf.columns = [str(c).strip().title() for c in udf.columns] 
     except:
-        st.error("Database connection failed. Please check your Google Sheet.")
+        st.error("Database connection failed.")
         st.stop()
 
     with t1:
@@ -168,9 +168,9 @@ elif mode == "Breathing Space":
 
 elif mode == "Snake":
     st.title("🐍 Zen Snake")
-    st.write("Desktop: **Arrow Keys**. Mobile: **Swipe** the game board.")
+    st.write("Desktop: **Arrow Keys**. Mobile: **Swipe**. (Ensure sound is on!)")
     
-    snake_swipe_haptic_html = """
+    snake_sound_html = """
     <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif; touch-action: none;">
         <div id="gameContainer" style="position: relative; width: 320px; height: 320px; touch-action: none;">
             <canvas id="gameCanvas" width="320" height="320" style="border:4px solid #219EBC; border-radius:12px; background:#fafafa; touch-action: none;"></canvas>
@@ -190,11 +190,25 @@ elif mode == "Snake":
     const gameOverScreen = document.getElementById("gameOverScreen");
     const finalScoreText = document.getElementById("finalScore");
 
+    // AUDIO ENGINE
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(freq, type, duration, vol) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    }
+
     let box = 16, score = 0, d, game;
     let snake = [{x: 9 * box, y: 10 * box}];
     let food = {x: Math.floor(Math.random()*19)*box, y: Math.floor(Math.random()*19)*box};
 
-    // SWIPE LOGIC
     let touchstartX = 0, touchstartY = 0, touchendX = 0, touchendY = 0;
     const container = document.getElementById('gameContainer');
 
@@ -210,6 +224,7 @@ elif mode == "Snake":
     }, false);
 
     function handleGesture() {
+        let oldD = d;
         let dx = touchendX - touchstartX;
         let dy = touchendY - touchstartY;
         if (Math.abs(dx) > Math.abs(dy)) {
@@ -219,14 +234,16 @@ elif mode == "Snake":
             if (dy > 30 && d != 'UP') d = 'DOWN';
             else if (dy < -30 && d != 'DOWN') d = 'UP';
         }
+        if (oldD !== d) playSound(150, 'square', 0.05, 0.05); // Move sound
     }
 
-    // DESKTOP KEYBOARD LOGIC
     document.addEventListener("keydown", (e) => {
+        let oldD = d;
         if(e.keyCode == 37 && d != 'RIGHT') d = 'LEFT';
         if(e.keyCode == 38 && d != 'DOWN') d = 'UP';
         if(e.keyCode == 39 && d != 'LEFT') d = 'RIGHT';
         if(e.keyCode == 40 && d != 'UP') d = 'DOWN';
+        if (oldD !== d) playSound(150, 'square', 0.05, 0.05); // Move sound
     });
 
     function draw() {
@@ -244,25 +261,28 @@ elif mode == "Snake":
         if(d == "RIGHT") headX += box; if(d == "DOWN") headY += box;
 
         if(headX == food.x && headY == food.y){
-            score++; 
-            scoreText.innerHTML = "Score: " + score;
-            if (window.navigator.vibrate) window.navigator.vibrate(50); // Short haptic pulse
+            score++; scoreText.innerHTML = "Score: " + score;
+            playSound(600, 'triangle', 0.2, 0.1); // Eat sound
+            if (window.navigator.vibrate) window.navigator.vibrate(50);
             food = {x: Math.floor(Math.random()*19)*box, y: Math.floor(Math.random()*19)*box};
         } else { snake.pop(); }
 
         let h = {x: headX, y: headY};
         if(headX < 0 || headX >= 320 || headY < 0 || headY >= 320 || snake.some(s=>s.x==h.x && s.y==h.y)){
-            clearInterval(game);
+            clearInterval(game); 
             finalScoreText.innerHTML = "Final Score: " + score;
-            if (window.navigator.vibrate) window.navigator.vibrate([200, 100, 200]); // Long "fail" vibration
+            // Game Over sound sequence
+            playSound(300, 'sawtooth', 0.3, 0.1);
+            setTimeout(() => playSound(200, 'sawtooth', 0.4, 0.1), 150);
+            if (window.navigator.vibrate) window.navigator.vibrate([200, 100, 200]);
             gameOverScreen.style.display = "flex";
         }
         snake.unshift(h);
     }
-    game = setInterval(draw, 125);
+    game = setInterval(draw, 200); 
     </script>
     """
-    st.components.v1.html(snake_swipe_haptic_html, height=450)
+    st.components.v1.html(snake_sound_html, height=450)
 
 elif mode == "🛡️ Admin Panel":
     st.title("🛡️ Admin Oversight")
