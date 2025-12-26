@@ -101,4 +101,59 @@ if mode == "Patient Portal":
 
     if st.button("Save Daily Score", use_container_width=True):
         df = conn.read(worksheet="Sheet1", ttl=0)
-        new = pd.DataFrame([{"Date": datetime.date.today().strftime("%
+        new = pd.DataFrame([{"Date": datetime.date.today().strftime("%Y-%m-%d"), "Energy": score, "CoupleID": cid}])
+        conn.update(worksheet="Sheet1", data=pd.concat([df, new], ignore_index=True))
+        st.success("Entry Saved!")
+
+elif mode == "Caregiver Command":
+    st.title("👩‍⚕️ Clara Analyst")
+    all_d = conn.read(worksheet="Sheet1", ttl=0)
+    f_data = all_d[all_d['CoupleID'].astype(str) == str(cid)]
+    if not f_data.empty: st.line_chart(f_data.set_index("Date")['Energy'])
+    
+    for m in st.session_state.clara_history:
+        with st.chat_message(m["role"]): st.write(m["content"])
+    
+    c_in = st.chat_input("Ask Clara...")
+    if c_in:
+        log_to_master(cid, "Caregiver", "User", c_in)
+        prompt = f"You are Clara for {cname}. Logs: {f_data.tail(5).to_string()}"
+        msgs = [{"role":"system", "content": prompt}] + st.session_state.clara_history[-4:] + [{"role": "user", "content": c_in}]
+        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs).choices[0].message.content
+        log_to_master(cid, "Caregiver", "Clara", res)
+        st.session_state.clara_history.append({"role": "user", "content": c_in})
+        st.session_state.clara_history.append({"role": "assistant", "content": res})
+        st.rerun()
+
+elif mode == "Zen Zone 🧩":
+    st.title("🧩 Zen Memory Match")
+    if "cards" not in st.session_state:
+        icons = list("🌟🍀🎈💎🌈🦄🍎🎨") * 2
+        random.shuffle(icons)
+        st.session_state.cards = icons
+        st.session_state.flipped = []
+        st.session_state.matched = []
+
+    cols = st.columns(4)
+    for i, icon in enumerate(st.session_state.cards):
+        with cols[i % 4]:
+            if i in st.session_state.matched: st.button(icon, key=f"m_{i}", disabled=True)
+            elif i in st.session_state.flipped: st.button(icon, key=f"f_{i}")
+            else:
+                if st.button("❓", key=f"c_{i}"):
+                    st.session_state.flipped.append(i)
+                    if len(st.session_state.flipped) == 2:
+                        idx1, idx2 = st.session_state.flipped
+                        if st.session_state.cards[idx1] == st.session_state.cards[idx2]: st.session_state.matched.extend([idx1, idx2])
+                        st.session_state.flipped = []
+                    st.rerun()
+    if st.button("Reset Game"): 
+        del st.session_state.cards
+        st.rerun()
+
+elif mode == "🛡️ Admin Panel":
+    st.title("🛡️ Admin Oversight")
+    logs = conn.read(worksheet="ChatLogs", ttl=0)
+    selected = st.selectbox("Filter by Household", ["All"] + list(logs['CoupleID'].unique()))
+    view = logs if selected == "All" else logs[logs['CoupleID'] == selected]
+    st.dataframe(view.sort_values(by="Timestamp", ascending=False), use_container_width=True)
