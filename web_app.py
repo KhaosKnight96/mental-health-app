@@ -56,26 +56,22 @@ def handle_chat(role_context):
         # Reset input box
         st.session_state[user_input_key] = ""
 
-# --- 4. AUTHENTICATION & ROLE SELECTION ---
-
-# Stage 1: Login
+# --- 4. AUTHENTICATION ---
 if not st.session_state.authenticated:
     st.title("🔐 Secure Access")
     
-    # We use .strip() and .lower() to ensure NO typing errors block you
-    u_input = st.text_input("Username").strip().lower()
-    p_input = st.text_input("Password", type="password").strip().lower()
+    # We use a unique key to prevent browser autocomplete issues
+    u = st.text_input("Username", key="login_user").strip().lower()
+    p = st.text_input("Password", type="password", key="login_pass").strip().lower()
     
-    if st.button("Unlock App", use_container_width=True):
-        # I have set BOTH to be 'admin' for now so you can definitely get in
-        if u_input == "admin" and p_input == "admin1":
+    if st.button("Unlock App"):
+        # SIMPLEST POSSIBLE CHECK: everything lowercase
+        if u == "admin" and p == "admin1":
             st.session_state.authenticated = True
             st.rerun()
         else:
-            st.error(f"Login Failed. You entered: {u_input} / {p_input}")
-            st.info("Try Username: admin | Password: admin1")
+            st.error(f"Try again. Hint: admin / admin1")
     st.stop()
-
 # Stage 2: Role Selection
 if st.session_state.user_role is None:
     st.title("🤝 Welcome back!")
@@ -159,4 +155,5 @@ else:
         with st.chat_message(chat["role"]):
             st.write(chat["content"])
     st.text_input("Ask Cooper for advice:", key="caregiver_input", on_change=handle_chat, args=("caregiver",), placeholder="Ask about trends or support tips...")
+
 
