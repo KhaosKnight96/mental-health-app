@@ -6,136 +6,136 @@ import time
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 
-# --- 1. SETUP & FORCED THEME ---
+# --- 1. SETTINGS & CSS FIX ---
 st.set_page_config(page_title="Health Bridge Portal", layout="wide")
 
-# This CSS forces a dark, high-contrast theme to prevent "white-out"
+# This CSS forces high visibility and restores the sidebar look
 st.markdown("""
 <style>
-    /* Force Background and Text Colors */
-    .stApp {
-        background-color: #0F172A !important;
-        color: #F8FAFC !important;
-    }
+    .stApp { background-color: #0F172A; color: white; }
+    [data-testid="stSidebar"] { background-color: #1E293B !important; }
+    .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 { color: white !important; }
     
-    /* High-Contrast Login Box */
-    .login-box {
-        background: rgba(30, 41, 59, 0.7);
-        padding: 3rem;
-        border-radius: 20px;
-        border: 1px solid #334155;
-        backdrop-filter: blur(10px);
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
-    }
-    
-    /* Action Cards for Role Selection and Portals */
+    /* Action Card Style */
     .action-card {
         background: #1E293B;
-        padding: 2rem;
+        padding: 25px;
         border-radius: 15px;
-        border: 2px solid #334155;
+        border: 2px solid #38BDF8;
         text-align: center;
-        transition: transform 0.3s ease;
-    }
-    .action-card:hover {
-        border-color: #38BDF8;
-        transform: translateY(-5px);
-    }
-
-    /* Fix for standard Streamlit text visibility */
-    h1, h2, h3, p, span, label {
-        color: #F8FAFC !important;
+        margin-bottom: 20px;
     }
     
-    /* Button Styling */
-    .stButton>button {
-        border-radius: 10px !important;
-        font-weight: 600 !important;
+    /* Login Box */
+    .login-box {
+        background: #1E293B;
+        padding: 40px;
+        border-radius: 20px;
+        border: 1px solid #334155;
     }
 </style>
 """, unsafe_allow_html=True)
 
+# Initialize Session States
 if "auth" not in st.session_state:
-    st.session_state.auth = {"logged_in": False, "cid": None, "name": None, "role": None, "view": "login"}
+    st.session_state.auth = {"logged_in": False, "cid": None, "name": None, "role": None}
 if "chat_log" not in st.session_state: st.session_state.chat_log = []
 if "clara_history" not in st.session_state: st.session_state.clara_history = []
 
-# Connections
-conn = st.connection("gsheets", type=GSheetsConnection)
-client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-
-# --- 2. LOGIN PAGE ---
+# --- 2. AUTHENTICATION ---
 if not st.session_state.auth["logged_in"]:
-    _, col, _ = st.columns([1, 1.5, 1])
+    _, col, _ = st.columns([1, 2, 1])
     with col:
-        st.write("##") 
         st.markdown('<div class="login-box">', unsafe_allow_html=True)
-        st.title("🧠 Health Bridge")
-        st.write("Secure Clinical Access")
-        
-        u_l = st.text_input("Couple ID", key="l_u")
-        p_l = st.text_input("Password", type="password", key="l_p")
-        
-        if st.button("Sign In", use_container_width=True, type="primary"):
-            udf = conn.read(worksheet="Users", ttl=0)
-            udf.columns = [str(c).strip().title() for c in udf.columns]
-            m = udf[(udf['Username'].astype(str)==u_l) & (udf['Password'].astype(str)==p_l)]
-            if not m.empty:
-                st.session_state.auth.update({
-                    "logged_in": True, "cid": u_l, 
-                    "name": m.iloc[0]['Fullname'], "view": "role_selection"
-                })
-                st.rerun()
-            else:
-                st.error("Invalid Credentials")
+        st.title("🧠 Health Bridge Login")
+        u = st.text_input("Couple ID")
+        p = st.text_input("Password", type="password")
+        if st.button("Enter Portal", use_container_width=True, type="primary"):
+            # Note: Ensure your 'Users' sheet has Username, Password, Fullname columns
+            try:
+                conn = st.connection("gsheets", type=GSheetsConnection)
+                udf = conn.read(worksheet="Users", ttl=0)
+                udf.columns = [str(c).strip().title() for c in udf.columns]
+                m = udf[(udf['Username'].astype(str)==u) & (udf['Password'].astype(str)==p)]
+                if not m.empty:
+                    st.session_state.auth.update({"logged_in": True, "cid": u, "name": m.iloc[0]['Fullname']})
+                    st.rerun()
+                else: st.error("Invalid credentials")
+            except Exception as e:
+                st.error(f"Connection Error: {e}")
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# --- 3. POST-LOGIN ROLE SELECTION ---
-if st.session_state.auth["view"] == "role_selection":
-    st.write("##")
-    st.markdown(f"<h1 style='text-align: center;'>Welcome, {st.session_state.auth['name']}</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; font-size: 1.2rem;'>Which dashboard would you like to access today?</p>", unsafe_allow_html=True)
-    st.write("##")
+# --- 3. ROLE SELECTION (POST-LOGIN) ---
+if st.session_state.auth["role"] is None:
+    st.title(f"Welcome, {st.session_state.auth['name']}")
+    st.write("Please select your role for this session:")
     
-    c1, c2, c3, c4 = st.columns([0.5, 2, 2, 0.5])
-    with c2:
-        st.markdown('<div class="action-card"><h2>👤 Patient</h2><p>Chat with Cooper and log daily energy.</p></div>', unsafe_allow_html=True)
-        if st.button("Enter Patient Portal", use_container_width=True):
-            st.session_state.auth.update({"role": "patient", "view": "dashboard"})
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown('<div class="action-card"><h2>👤 Patient</h2><p>Access Cooper & Zen Zone</p></div>', unsafe_allow_html=True)
+        if st.button("I am the Patient", use_container_width=True):
+            st.session_state.auth["role"] = "patient"
             st.rerun()
-    with c3:
-        st.markdown('<div class="action-card"><h2>👩‍⚕️ Caregiver</h2><p>View Clara analytics and patient history.</p></div>', unsafe_allow_html=True)
-        if st.button("Enter Caregiver Command", use_container_width=True):
-            st.session_state.auth.update({"role": "caregiver", "view": "dashboard"})
+    with col2:
+        st.markdown('<div class="action-card"><h2>👩‍⚕️ Caregiver</h2><p>Access Clara & Analytics</p></div>', unsafe_allow_html=True)
+        if st.button("I am the Caregiver", use_container_width=True):
+            st.session_state.auth["role"] = "caregiver"
             st.rerun()
     st.stop()
 
-# --- 4. DASHBOARD & GAMES ---
+# --- 4. NAVIGATION & SIDEBAR (RESTORED ZEN ZONE) ---
 role = st.session_state.auth["role"]
 
 with st.sidebar:
-    st.title("🏠 Health Bridge")
+    st.title("🌉 Health Bridge")
     st.write(f"User: **{st.session_state.auth['name']}**")
-    st.caption(f"Mode: {role.capitalize()}")
+    st.caption(f"Role: {role.title()}")
     st.divider()
-    
-    # Simple nav based on role
+
+    # Define Menu based on Role
     if role == "patient":
-        mode = st.radio("Navigation", ["Patient Portal", "Memory Match", "Snake", "Breathing Space"])
+        main_menu = ["Patient Dashboard"]
+        zen_zone = ["Memory Match", "Breathing Space", "Snake"]
     else:
-        mode = st.radio("Navigation", ["Caregiver Command", "Admin Panel"])
-        
+        main_menu = ["Caregiver Command", "Admin Panel"]
+        zen_zone = ["Breathing Space"] # Caregivers might just want a break!
+
+    mode = st.radio("Main Menu", main_menu)
+    st.write("##")
+    st.subheader("🧩 Zen Zone")
+    game_choice = st.selectbox("Choose a Game", ["--- Select ---"] + zen_zone)
+    
+    if game_choice != "--- Select ---":
+        mode = game_choice
+
+    st.divider()
     if st.button("Log Out", use_container_width=True):
-        st.session_state.auth = {"logged_in": False}
+        st.session_state.auth = {"logged_in": False, "role": None}
         st.rerun()
 
-# --- GAME LOGIC (3D Memory Match Example) ---
-if mode == "Memory Match":
-    st.title("🧩 Memory Match")
-    st.write("Pairs will stay visible for 1 second if they don't match.")
-    # Insert the 3D Javascript Logic here...
-    
-elif mode == "Patient Portal":
-    st.title("👋 Cooper Support")
-    # Insert Energy Slider and Chat Logic here...
+# --- 5. PAGE CONTENT ---
+
+if mode == "Patient Dashboard":
+    st.title("👋 Patient Portal")
+    st.info("Your Energy Tracker and Cooper AI will appear here.")
+    # Add your energy slider and Cooper chat logic here
+
+elif mode == "Caregiver Command":
+    st.title("👩‍⚕️ Caregiver Command")
+    st.info("Patient history and Clara AI will appear here.")
+
+elif mode == "Memory Match":
+    st.title("🧩 3D Memory Match")
+    # THE 3D GAME LOGIC
+    memory_js = """
+    <div id='mem-game' style='display:grid; grid-template-columns: repeat(4, 1fr); gap: 10px;'></div>
+    <script>
+    // 3D Game JS with 1s delay logic here...
+    </script>
+    """
+    st.components.v1.html("Memory Game Rendering...", height=400)
+
+elif mode == "Snake":
+    st.title("🐍 Zen Snake")
+    st.write("Use arrow keys to play.")
