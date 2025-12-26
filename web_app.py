@@ -59,26 +59,31 @@ if not st.session_state.auth["logged_in"]:
                 st.rerun()
     st.stop()
 
-# --- 4. NAVIGATION & ZEN DROPDOWN ---
+# --- 4. NAVIGATION & LOGIC ---
 cid, cname, role = st.session_state.auth["cid"], st.session_state.auth["name"], st.session_state.auth["role"]
 
 with st.sidebar:
     st.subheader(f"🏠 {cname}")
     
-    # Primary Portals
+    # 1. Main Portal Selection
     main_options = ["Patient Portal", "Caregiver Command"]
-    if role == "admin": 
-        main_options.append("🛡️ Admin Panel")
+    if role == "admin": main_options.append("🛡️ Admin Panel")
     
-    mode = st.radio("Go to:", main_options)
+    # We use a key so we can manualy reset this if needed
+    mode = st.radio("Go to:", main_options, key="main_nav")
     
     st.divider()
     
-    # THE ZEN ZONE PULLDOWN
+    # 2. Zen Zone Pulldown
     st.subheader("🧩 Zen Zone")
-    game_choice = st.selectbox("Select a Activity:", ["--- Choose ---", "Memory Match", "Breathing Space"])
+    # Adding a key here allows the app to track this specific widget
+    game_choice = st.selectbox(
+        "Select an Activity:", 
+        ["--- Choose ---", "Memory Match", "Breathing Space"],
+        key="zen_nav"
+    )
     
-    # If a game is selected, we override the 'mode'
+    # LOGIC: If a game is picked, it overrides the radio button
     if game_choice != "--- Choose ---":
         mode = game_choice
 
@@ -91,51 +96,33 @@ with st.sidebar:
 
 # --- 5. PORTALS & GAMES ---
 
-# A. PATIENT PORTAL
+# If the user is in a game and wants to go back, 
+# they just need to set the Pulldown back to "--- Choose ---"
+
 if mode == "Patient Portal":
     st.title("👋 Cooper Support")
-    # ... (Your existing Cooper/Slider code goes here)
+    # ... (Your Cooper Code)
 
-# B. CAREGIVER PORTAL
 elif mode == "Caregiver Command":
     st.title("👩‍⚕️ Clara Analyst")
-    # ... (Your existing Clara/Graph code goes here)
+    # ... (Your Clara Code)
 
-# C. ADMIN PANEL
 elif mode == "🛡️ Admin Panel":
     st.title("🛡️ Admin Oversight")
-    # ... (Your existing Admin log code goes here)
+    # ... (Your Admin Code)
 
-# D. THE GAMES (Triggered by the Sidebar Pulldown)
 elif mode == "Memory Match":
     st.title("🧩 Zen Memory Match")
-    if "cards" not in st.session_state:
-        icons = list("🌟🍀🎈💎🌈🦄🍎🎨") * 2
-        random.shuffle(icons)
-        st.session_state.cards = icons
-        st.session_state.flipped = []
-        st.session_state.matched = []
-
-    cols = st.columns(4)
-    for i, icon in enumerate(st.session_state.cards):
-        with cols[i % 4]:
-            if i in st.session_state.matched: st.button(icon, key=f"m_{i}", disabled=True)
-            elif i in st.session_state.flipped: st.button(icon, key=f"f_{i}")
-            else:
-                if st.button("❓", key=f"c_{i}"):
-                    st.session_state.flipped.append(i)
-                    if len(st.session_state.flipped) == 2:
-                        idx1, idx2 = st.session_state.flipped
-                        if st.session_state.cards[idx1] == st.session_state.cards[idx2]: 
-                            st.session_state.matched.extend([idx1, idx2])
-                        st.session_state.flipped = []
-                    st.rerun()
-    if st.button("Reset Game"): 
-        del st.session_state.cards
+    # Add a "Back" button for better UX
+    if st.button("← Back to Portal"):
+        st.session_state.zen_nav = "--- Choose ---"
         st.rerun()
+    
+    # ... (Rest of your Memory Match Code)
 
 elif mode == "Breathing Space":
     st.title("🌬️ Breathing Space")
-    st.write("Follow the circle to find your center.")
-    st.info("Inhale for 4 seconds... Hold for 7... Exhale for 8.")
-    # You can add a simple CSS animation here later!
+    if st.button("← Back to Portal"):
+        st.session_state.zen_nav = "--- Choose ---"
+        st.rerun()
+    st.write("Follow the rhythm...")
