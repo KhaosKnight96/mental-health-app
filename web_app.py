@@ -71,16 +71,51 @@ if not st.session_state.auth["logged_in"]:
     st.stop()
 
 # --- 4. NAVIGATION ---
+# --- 4. NAVIGATION & LOGOUT ---
 cid, cname, role = st.session_state.auth["cid"], st.session_state.auth["name"], st.session_state.auth["role"]
 
 with st.sidebar:
     st.subheader(f"🏠 {cname}")
-    options = ["Patient Portal", "Caregiver Command", "Zen Zone 🧩"] # Added Zen Zone
+    st.caption(f"Role: {role.capitalize()}")
+    
+    # Define page options based on Role
+    options = ["Patient Portal", "Caregiver Command", "Zen Zone 🧩"]
     if role == "admin":
         options.append("🛡️ Admin Panel")
     
     mode = st.radio("Go to:", options)
+    
+    st.divider() # Visual separator
+    
+    # THE LOGOUT FUNCTION
+    if st.button("🚪 Log Out", use_container_width=True):
+        # 1. Reset Auth
+        st.session_state.auth = {"logged_in": False, "cid": None, "name": None, "role": "user"}
+        # 2. Clear Chat Histories
+        st.session_state.chat_log = []
+        st.session_state.clara_history = []
+        # 3. Clear Game State
+        if "cards" in st.session_state:
+            del st.session_state.cards
+        # 4. Refresh app to Login Screen
+        st.rerun()
 
+# --- 5. PORTAL LOGIC ---
+if mode == "Patient Portal":
+    # ... (Your Cooper Code)
+    pass 
+
+elif mode == "Caregiver Command":
+    # ... (Your Clara Code)
+    pass
+
+elif mode == "Zen Zone 🧩":
+    # ... (Your Minigame Code)
+    pass
+
+elif mode == "🛡️ Admin Panel":
+    # ... (Your Admin Code)
+    pass
 # --- 5. ZEN ZONE (MINIGAME) ---
 if mode == "Zen Zone 🧩":
     st.title("🧩 Zen Memory Match")
@@ -139,4 +174,5 @@ elif mode == "🛡️ Admin Panel":
             
     except:
         st.info("No chat logs found yet. Ensure you have a 'ChatLogs' tab in your Google Sheet.")
+
 
