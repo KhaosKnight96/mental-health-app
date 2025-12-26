@@ -61,18 +61,19 @@ def handle_chat(role_context):
 # Stage 1: Login
 if not st.session_state.authenticated:
     st.title("🔐 Secure Access")
-    # Using columns to center the login box
-    login_col1, login_col2, login_col3 = st.columns([1,2,1])
-    with login_col2:
-        u = st.text_input("Username").strip()
-        p = st.text_input("Password", type="password").strip()
-        if st.button("Unlock App", use_container_width=True):
-            # Using lowercase .lower() so it isn't case-sensitive
-            if u.lower() == "admin" and p == "Admin1":
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Invalid credentials. Please try again.")
+    
+    # We use .strip() and .lower() to ensure NO typing errors block you
+    u_input = st.text_input("Username").strip().lower()
+    p_input = st.text_input("Password", type="password").strip().lower()
+    
+    if st.button("Unlock App", use_container_width=True):
+        # I have set BOTH to be 'admin' for now so you can definitely get in
+        if u_input == "admin" and p_input == "admin1":
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error(f"Login Failed. You entered: {u_input} / {p_input}")
+            st.info("Try Username: admin | Password: admin1")
     st.stop()
 
 # Stage 2: Role Selection
@@ -158,3 +159,4 @@ else:
         with st.chat_message(chat["role"]):
             st.write(chat["content"])
     st.text_input("Ask Cooper for advice:", key="caregiver_input", on_change=handle_chat, args=("caregiver",), placeholder="Ask about trends or support tips...")
+
