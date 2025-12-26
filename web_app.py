@@ -69,7 +69,6 @@ with st.sidebar:
     mode = st.radio("Go to:", main_opts, key="main_nav")
     st.divider()
     
-    # Zen Zone Pulldown
     st.subheader("🧩 Zen Zone")
     game_choice = st.selectbox("Select Activity:", ["--- Choose ---", "Memory Match"], key="zen_nav")
     
@@ -163,8 +162,9 @@ elif mode == "🛡️ Admin Panel":
     st.title("🛡️ Admin Oversight")
     try:
         logs_df = conn.read(worksheet="ChatLogs", ttl=0)
-        selected_id = st.selectbox("Filter by Household", ["All"] + list(logs_df['CoupleID'].unique()))
+        unique_ids = ["All"] + list(logs_df['CoupleID'].unique())
+        selected_id = st.selectbox("Filter by Household", unique_ids)
         view_df = logs_df if selected_id == "All" else logs_df[logs_df['CoupleID'] == selected_id]
         st.dataframe(view_df.sort_values(by="Timestamp", ascending=False), use_container_width=True)
-    except:
-        st.info("No chat logs found. Ensure you have a 'ChatLogs' tab in your Google Sheet.")
+    except Exception as e:
+        st.info("No chat logs found yet. Ensure your 'ChatLogs' tab is set up correctly.")
