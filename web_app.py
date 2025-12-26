@@ -29,7 +29,6 @@ def log_to_master(cid, user_type, speaker, message):
     except: pass
 
 def sync_nav():
-    """Ensures Zen Zone resets when clicking Patient or Caregiver portals."""
     st.session_state.zen_nav = "--- Choose ---"
 
 # --- 3. LOGIN & SIGN-UP ---
@@ -84,7 +83,7 @@ with st.sidebar:
         mode = game_choice
 
     st.divider()
-    if st.button("🚪 Log Out", use_container_width=True):
+    if st.button("Log Out", use_container_width=True):
         st.session_state.auth = {"logged_in": False, "cid": None, "name": None, "role": "user"}
         st.session_state.chat_log, st.session_state.clara_history = [], []
         if "cards" in st.session_state: del st.session_state.cards
@@ -169,17 +168,19 @@ elif mode == "Breathing Space":
 
 elif mode == "Snake":
     st.title("🐍 Zen Snake")
-    st.write("Use **Arrow Keys** to move. Eat the orange fruit to grow!")
+    st.write("Desktop: **Arrow Keys**. Mobile: **Swipe** the game board.")
     
-    snake_html = """
-    <div style="position: relative; width: 400px; margin: 0 auto;">
-        <canvas id="gameCanvas" width="400" height="400" style="border:5px solid #219EBC; border-radius:15px; background:#fafafa; display: block;"></canvas>
-        <div id="gameOverScreen" style="display: none; position: absolute; top: 0; left: 0; width: 400px; height: 400px; background: rgba(2, 48, 71, 0.9); color: white; border-radius: 10px; flex-direction: column; justify-content: center; align-items: center; text-align: center; font-family: sans-serif;">
-            <h1 style="font-size: 40px; margin-bottom: 10px;">GAME OVER</h1>
-            <p id="finalScore" style="font-size: 20px; margin-bottom: 20px;">Score: 0</p>
-            <button onclick="location.reload()" style="padding: 12px 25px; font-size: 18px; cursor: pointer; background-color: #fb8500; border: none; color: white; border-radius: 5px; font-weight: bold;">Try Again</button>
+    snake_swipe_html = """
+    <div style="display: flex; flex-direction: column; align-items: center; font-family: sans-serif; touch-action: none;">
+        <div id="gameContainer" style="position: relative; width: 320px; height: 320px; touch-action: none;">
+            <canvas id="gameCanvas" width="320" height="320" style="border:4px solid #219EBC; border-radius:12px; background:#fafafa; touch-action: none;"></canvas>
+            <div id="gameOverScreen" style="display: none; position: absolute; top: 0; left: 0; width: 320px; height: 320px; background: rgba(2, 48, 71, 0.9); color: white; border-radius: 8px; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+                <h1 style="margin-bottom: 10px;">GAME OVER</h1>
+                <p id="finalScore">Score: 0</p>
+                <button onclick="location.reload()" style="padding: 10px 20px; font-size: 16px; cursor: pointer; background: #fb8500; border: none; color: white; border-radius: 5px; margin-top: 15px;">Play Again</button>
+            </div>
         </div>
-        <h3 id="scoreText" style="font-family:sans-serif; text-align: center; color: #023047;">Current Score: 0</h3>
+        <h3 id="scoreText" style="color: #023047; margin: 15px 0;">Score: 0</h3>
     </div>
 
     <script>
@@ -189,61 +190,77 @@ elif mode == "Snake":
     const gameOverScreen = document.getElementById("gameOverScreen");
     const finalScoreText = document.getElementById("finalScore");
 
-    let box = 20, score = 0, d, game;
+    let box = 16, score = 0, d, game;
     let snake = [{x: 9 * box, y: 10 * box}];
     let food = {x: Math.floor(Math.random()*19)*box, y: Math.floor(Math.random()*19)*box};
 
+    // SWIPE LOGIC
+    let touchstartX = 0, touchstartY = 0, touchendX = 0, touchendY = 0;
+
+    const container = document.getElementById('gameContainer');
+
+    container.addEventListener('touchstart', e => {
+        touchstartX = e.changedTouches[0].screenX;
+        touchstartY = e.changedTouches[0].screenY;
+    }, false);
+
+    container.addEventListener('touchend', e => {
+        touchendX = e.changedTouches[0].screenX;
+        touchendY = e.changedTouches[0].screenY;
+        handleGesture();
+    }, false);
+
+    function handleGesture() {
+        let dx = touchendX - touchstartX;
+        let dy = touchendY - touchstartY;
+        
+        if (Math.abs(dx) > Math.abs(dy)) {
+            if (dx > 30 && d != 'LEFT') d = 'RIGHT';
+            else if (dx < -30 && d != 'RIGHT') d = 'LEFT';
+        } else {
+            if (dy > 30 && d != 'UP') d = 'DOWN';
+            else if (dy < -30 && d != 'DOWN') d = 'UP';
+        }
+    }
+
+    // DESKTOP KEYBOARD LOGIC
     document.addEventListener("keydown", (e) => {
-        if(e.keyCode == 37 && d != "RIGHT") d = "LEFT";
-        if(e.keyCode == 38 && d != "DOWN") d = "UP";
-        if(e.keyCode == 39 && d != "LEFT") d = "RIGHT";
-        if(e.keyCode == 40 && d != "UP") d = "DOWN";
+        if(e.keyCode == 37 && d != 'RIGHT') d = 'LEFT';
+        if(e.keyCode == 38 && d != 'DOWN') d = 'UP';
+        if(e.keyCode == 39 && d != 'LEFT') d = 'RIGHT';
+        if(e.keyCode == 40 && d != 'UP') d = 'DOWN';
     });
 
     function draw() {
-        ctx.fillStyle = "#fafafa"; ctx.fillRect(0,0,400,400);
-        
+        ctx.fillStyle = "#fafafa"; ctx.fillRect(0,0,320,320);
         for(let i=0; i<snake.length; i++){
             ctx.fillStyle = (i==0) ? "#219EBC" : "#8ECAE6";
             ctx.fillRect(snake[i].x, snake[i].y, box, box);
-            ctx.strokeStyle = "#fafafa";
-            ctx.strokeRect(snake[i].x, snake[i].y, box, box);
+            ctx.strokeStyle = "#fafafa"; ctx.strokeRect(snake[i].x, snake[i].y, box, box);
         }
-
-        ctx.fillStyle = "#fb8500";
-        ctx.beginPath();
-        ctx.arc(food.x + box/2, food.y + box/2, box/2, 0, Math.PI*2);
-        ctx.fill();
+        ctx.fillStyle = "#fb8500"; ctx.beginPath();
+        ctx.arc(food.x + box/2, food.y + box/2, box/2, 0, Math.PI*2); ctx.fill();
 
         let headX = snake[0].x, headY = snake[0].y;
         if(d == "LEFT") headX -= box; if(d == "UP") headY -= box;
         if(d == "RIGHT") headX += box; if(d == "DOWN") headY += box;
 
         if(headX == food.x && headY == food.y){
-            score++; 
-            scoreText.innerHTML = "Current Score: " + score;
+            score++; scoreText.innerHTML = "Score: " + score;
             food = {x: Math.floor(Math.random()*19)*box, y: Math.floor(Math.random()*19)*box};
         } else { snake.pop(); }
 
-        let newHead = {x: headX, y: headY};
-
-        if(headX < 0 || headX >= 400 || headY < 0 || headY >= 400 || collision(newHead, snake)){
-            clearInterval(game);
-            finalScoreText.innerHTML = "Final Score: " + score;
+        let h = {x: headX, y: headY};
+        if(headX < 0 || headX >= 320 || headY < 0 || headY >= 320 || snake.some(s=>s.x==h.x && s.y==h.y)){
+            clearInterval(game); finalScoreText.innerHTML = "Final Score: " + score;
             gameOverScreen.style.display = "flex";
         }
-        snake.unshift(newHead);
+        snake.unshift(h);
     }
-
-    function collision(head, arr){
-        for(let i=0; i<arr.length; i++){ if(head.x == arr[i].x && head.y == arr[i].y) return true; }
-        return false;
-    }
-
-    game = setInterval(draw, 100);
+    game = setInterval(draw, 125);
     </script>
     """
-    st.components.v1.html(snake_html, height=550)
+    st.components.v1.html(snake_swipe_html, height=450)
 
 elif mode == "🛡️ Admin Panel":
     st.title("🛡️ Admin Oversight")
