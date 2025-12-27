@@ -72,22 +72,17 @@ def reset_to_home():
 with st.sidebar:
     st.title("🌉 Health Bridge")
     st.write(f"Logged in: **{cname}**")
-    
     main_nav = st.radio("Navigation", ["Dashboard"] if role == "patient" else ["Analytics"], key="main_nav_radio")
-    
     st.divider()
     with st.expander("🧩 Zen Zone", expanded=False):
         game_choice = st.selectbox("Select Break", ["Select a Game", "Memory Match", "Snake"], key="game_selector")
-    
     if game_choice != "Select a Game":
         st.session_state.current_page = game_choice
     else:
         st.session_state.current_page = main_nav
-
     if st.session_state.current_page in ["Memory Match", "Snake"]:
         st.write("##")
         st.button("🏠 Exit Zen Zone", use_container_width=True, type="primary", on_click=reset_to_home)
-
     st.divider()
     if st.button("🔄 Switch Role"): st.session_state.auth["role"] = None; st.rerun()
     if st.button("🚪 Logout"): st.session_state.auth = {"logged_in": False, "role": None}; st.rerun()
@@ -134,10 +129,23 @@ if mode in ["Dashboard", "Analytics"]:
 
 elif mode == "Memory Match":
     st.title("🧩 3D Memory Match")
-    st.write("Match all icons for a celebration!")
     
     memory_html = """
-    <div id="game-ui" style="display:flex; justify-content:center; flex-wrap:wrap; gap:12px; perspective: 1000px; padding: 20px;"></div>
+    <div id="game-container" style="position: relative; width: 100%; display: flex; flex-direction: column; align-items: center;">
+        <div id="game-ui" style="display:flex; justify-content:center; flex-wrap:wrap; gap:12px; perspective: 1000px; padding: 20px; max-width: 500px;"></div>
+        
+        <div id="win-overlay" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.95); border-radius:20px; flex-direction:column; justify-content:center; align-items:center; z-index:100; text-align:center; animation: fadeIn 0.5s;">
+            <h1 style="color:#FFD700; font-size:42px; margin-bottom:10px;">Magnificent!</h1>
+            <p style="color:white; font-size:20px; margin-bottom:30px;">You matched them all! 🎉</p>
+            <button onclick="resetMemoryGame()" style="padding:15px 40px; background:#219EBC; color:white; border:none; border-radius:12px; cursor:pointer; font-weight:bold; font-size:18px;">Play Again</button>
+        </div>
+    </div>
+
+    <style>
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .card-inner { width: 100%; height: 100%; transition: transform 0.6s; transform-style: preserve-3d; position: relative; }
+    </style>
+
     <script>
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     function playTone(freq, type, dur, vol=0.05) {
@@ -149,60 +157,69 @@ elif mode == "Memory Match":
         osc.start(); osc.stop(audioCtx.currentTime + dur);
     }
     
-    function winCelebration() {
-        // High-pitched victory chime
-        playTone(523.25, 'sine', 0.2, 0.1); // C5
-        setTimeout(() => playTone(659.25, 'sine', 0.2, 0.1), 150); // E5
-        setTimeout(() => playTone(783.99, 'sine', 0.2, 0.1), 300); // G5
-        setTimeout(() => playTone(1046.50, 'sine', 0.6, 0.1), 450); // C6
-        setTimeout(() => { alert("🎉 Magnificent! You matched them all!"); }, 700);
-    }
-
-    const icons = ["🌟","🌟","🍀","🍀","🎈","🎈","💎","💎","🌈","🌈","🦄","🦄","🍎","🍎","🎨","🎨"];
-    let shuffled = icons.sort(() => Math.random() - 0.5);
+    let icons = ["🌟","🌟","🍀","🍀","🎈","🎈","💎","💎","🌈","🌈","🦄","🦄","🍎","🍎","🎨","🎨"];
     let flipped = []; let matched = []; let canFlip = true;
     const container = document.getElementById('game-ui');
+    const overlay = document.getElementById('win-overlay');
 
-    shuffled.forEach((icon, i) => {
-        const card = document.createElement('div');
-        card.style = "width: 80px; height: 110px; cursor: pointer;";
-        card.innerHTML = `<div class="card-inner" id="card-${i}" style="width: 100%; height: 100%; transition: transform 0.6s; transform-style: preserve-3d; position: relative;">
-                <div style="position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 24px; border-radius: 12px; background: #219EBC; color: white; border: 2px solid white;">?</div>
-                <div style="position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; border-radius: 12px; background: white; transform: rotateY(180deg); border: 2px solid #219EBC;">${icon}</div>
-            </div>`;
-        card.onclick = () => {
-            if (!canFlip || matched.includes(i) || (flipped.length > 0 && flipped[0].i === i)) return;
-            
-            playTone(400, 'sine', 0.1);
-            document.getElementById(`card-${i}`).style.transform = "rotateY(180deg)";
-            flipped.push({i, icon});
+    function initBoard() {
+        container.innerHTML = '';
+        overlay.style.display = 'none';
+        matched = []; flipped = []; canFlip = true;
+        let shuffled = icons.sort(() => Math.random() - 0.5);
+        shuffled.forEach((icon, i) => {
+            const card = document.createElement('div');
+            card.className = 'card-wrapper';
+            card.style = "width: 80px; height: 110px; cursor: pointer;";
+            card.innerHTML = `<div class="card-inner" id="card-${i}">
+                    <div style="position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 24px; border-radius: 12px; background: #219EBC; color: white; border: 2px solid white;">?</div>
+                    <div style="position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; border-radius: 12px; background: white; transform: rotateY(180deg); border: 2px solid #219EBC;">${icon}</div>
+                </div>`;
+            card.onclick = () => flipCard(i, icon);
+            container.appendChild(card);
+        });
+    }
 
-            if (flipped.length === 2) {
-                canFlip = false;
-                if (flipped[0].icon === flipped[1].icon) {
-                    setTimeout(() => playTone(800, 'triangle', 0.2), 300);
-                    matched.push(flipped[0].i, flipped[1].i);
+    function flipCard(i, icon) {
+        if (!canFlip || matched.includes(i) || (flipped.length > 0 && flipped[0].i === i)) return;
+        playTone(400, 'sine', 0.1);
+        document.getElementById(`card-${i}`).style.transform = "rotateY(180deg)";
+        flipped.push({i, icon});
+        if (flipped.length === 2) {
+            canFlip = false;
+            if (flipped[0].icon === flipped[1].icon) {
+                setTimeout(() => playTone(800, 'triangle', 0.2), 300);
+                matched.push(flipped[0].i, flipped[1].i);
+                flipped = []; canFlip = true;
+                if (matched.length === icons.length) showWin();
+            } else {
+                setTimeout(() => {
+                    playTone(200, 'sine', 0.1);
+                    document.getElementById(`card-${flipped[0].i}`).style.transform = "rotateY(0deg)";
+                    document.getElementById(`card-${flipped[1].i}`).style.transform = "rotateY(0deg)";
                     flipped = []; canFlip = true;
-                    if (matched.length === icons.length) setTimeout(winCelebration, 600);
-                } else {
-                    setTimeout(() => {
-                        playTone(200, 'sine', 0.1);
-                        document.getElementById(`card-${flipped[0].i}`).style.transform = "rotateY(0deg)";
-                        document.getElementById(`card-${flipped[1].i}`).style.transform = "rotateY(0deg)";
-                        flipped = []; canFlip = true;
-                    }, 1000);
-                }
+                }, 1000);
             }
-        };
-        container.appendChild(card);
-    });
+        }
+    }
+
+    function showWin() {
+        playTone(523.25, 'sine', 0.2, 0.1);
+        setTimeout(() => playTone(659.25, 'sine', 0.2, 0.1), 150);
+        setTimeout(() => playTone(783.99, 'sine', 0.2, 0.1), 300);
+        setTimeout(() => playTone(1046.50, 'sine', 0.6, 0.1), 450);
+        setTimeout(() => { overlay.style.display = 'flex'; }, 600);
+    }
+
+    function resetMemoryGame() { initBoard(); }
+    initBoard();
     </script>
     """
     st.components.v1.html(memory_html, height=600)
 
 elif mode == "Snake":
     st.title("🐍 Zen Snake")
-    # (Snake Code remains unchanged from previous stable version)
+    # (Snake Code remains unchanged)
     snake_html = """
     <div id="game-container" style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:24px; touch-action: none; position: relative;">
         <canvas id="snakeGame" width="400" height="400" style="border:4px solid #38BDF8; border-radius:12px; background:#0F172A; max-width: 100%;"></canvas>
@@ -242,16 +259,6 @@ elif mode == "Snake":
             const keys = {37:'left', 38:'up', 39:'right', 40:'down'};
             if(keys[e.keyCode]) changeDir(keys[e.keyCode]);
         });
-        let xD, yD;
-        canvas.addEventListener('touchstart', e => { xD = e.touches[0].clientX; yD = e.touches[0].clientY; }, false);
-        canvas.addEventListener('touchmove', e => {
-            if (!xD || !yD) return;
-            let xU = e.touches[0].clientX, yU = e.touches[0].clientY;
-            let xDf = xD - xU, yDf = yD - yU;
-            if (Math.abs(xDf) > Math.abs(yDf)) { changeDir(xDf > 0 ? 'left' : 'right'); }
-            else { changeDir(yDf > 0 ? 'up' : 'down'); }
-            xD = null; yD = null;
-        }, false);
         function draw() {
             ctx.fillStyle = "#0F172A"; ctx.fillRect(0, 0, canvas.width, canvas.height);
             for(let i=0; i<snake.length; i++) {
