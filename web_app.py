@@ -1,27 +1,18 @@
 import streamlit as st
 import pandas as pd
-import random
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 
 # --- 1. CONFIG & MOBILE OPTIMIZATION ---
 st.set_page_config(page_title="Health Bridge", layout="wide", initial_sidebar_state="collapsed")
 
-# This CSS makes the app feel more like a mobile interface
 st.markdown("""
 <style>
     .stApp { background-color: #0F172A; color: #F8FAFC; }
     [data-testid="stSidebar"] { background-color: #1E293B; border-right: 1px solid #334155; }
     .portal-card { background: #1E293B; padding: 20px; border-radius: 15px; border: 1px solid #334155; margin-bottom: 15px; }
     .stButton>button { border-radius: 10px; font-weight: 600; height: 3em; width: 100%; }
-    /* Hide Streamlit branding for a cleaner app look */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
 </style>
-<head>
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-</head>
 """, unsafe_allow_html=True)
 
 # --- 2. CONNECTIONS ---
@@ -41,16 +32,14 @@ def get_data():
 # --- 3. LOGIN ---
 if not st.session_state.auth["logged_in"]:
     st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge</h1>", unsafe_allow_html=True)
-    with st.container():
-        u = st.text_input("Couple ID")
-        p = st.text_input("Password", type="password")
-        if st.button("Sign In"):
-            df = get_data()
-            m = df[(df['Username'].astype(str) == u) & (df['Password'].astype(str) == p)]
-            if not m.empty:
-                st.session_state.auth.update({"logged_in": True, "cid": u, "name": m.iloc[0]['Fullname']})
-                st.rerun()
-            else: st.error("Access Denied.")
+    u = st.text_input("Couple ID")
+    p = st.text_input("Password", type="password")
+    if st.button("Sign In"):
+        df = get_data()
+        m = df[(df['Username'].astype(str) == u) & (df['Password'].astype(str) == p)]
+        if not m.empty:
+            st.session_state.auth.update({"logged_in": True, "cid": u, "name": m.iloc[0]['Fullname']})
+            st.rerun()
     st.stop()
 
 # --- 4. NAVIGATION ---
@@ -62,63 +51,50 @@ with st.sidebar:
         st.session_state.auth = {"logged_in": False, "cid": None}
         st.rerun()
 
-# --- 5. DASHBOARD (COOPER - FRIEND) ---
+# --- 5. DASHBOARD (COOPER) ---
 if nav == "Dashboard":
     st.title(f"Hi {st.session_state.auth['name']}! 👋")
     col1, col2 = st.columns([1, 2])
-    
     with col1:
-        st.markdown('<div class="portal-card"><h3>🤝 Cooper AI</h3><p>Your friendly companion. Talk to me about anything on your mind.</p></div>', unsafe_allow_html=True)
-    
+        st.markdown('<div class="portal-card"><h3>🤝 Cooper</h3><p>Your friendly companion.</p></div>', unsafe_allow_html=True)
     with col2:
         container = st.container(height=400)
         for m in st.session_state.cooper_logs:
             with container.chat_message(m["role"]): st.write(m["content"])
-        
         if p := st.chat_input("Chat with Cooper..."):
             st.session_state.cooper_logs.append({"role": "user", "content": p})
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a warm, casual friend to a patient."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a warm friend."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
             st.session_state.cooper_logs.append({"role": "assistant", "content": res})
             st.rerun()
 
-# --- 6. CAREGIVER (CLARA - ANALYST) ---
+# --- 6. CAREGIVER (CLARA) ---
 elif nav == "Caregiver Insights":
     st.title("📊 Clara Analysis")
     df = get_data()
     user_row = df[df['Username'].astype(str) == str(st.session_state.auth['cid'])]
-    
     col_a, col_b = st.columns([1, 2])
     with col_a:
         st.markdown('<div class="portal-card"><h3>📋 Data Summary</h3>', unsafe_allow_html=True)
-        if not user_row.empty:
-            # Clean data for display
-            clean_display = user_row.drop(columns=['Password', 'Username']).T
-            clean_display.columns = ["Value"]
-            st.table(clean_display)
+        if not user_row.empty: st.table(user_row.drop(columns=['Password', 'Username']).T)
         st.markdown('</div>', unsafe_allow_html=True)
-
     with col_b:
-        st.markdown('<div class="portal-card"><h3>🤖 Clara Analyst</h3>', unsafe_allow_html=True)
         container = st.container(height=400)
         for m in st.session_state.clara_logs:
             with container.chat_message(m["role"]): st.write(m["content"])
-        
         if p := st.chat_input("Request analysis..."):
             st.session_state.clara_logs.append({"role": "user", "content": p})
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara, a precise medical data analyst for caregivers."}]+st.session_state.clara_logs[-5:]).choices[0].message.content
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara, a data analyst."}]+st.session_state.clara_logs[-5:]).choices[0].message.content
             st.session_state.clara_logs.append({"role": "assistant", "content": res})
             st.rerun()
 
-# --- 7. GAMES (SNAKE & MEMORY) ---
+# --- 7. GAMES ---
 elif nav == "Games":
     game_type = st.radio("Choose Game", ["Zen Snake", "Memory Match"], horizontal=True)
-    
-    if st.button("⬅️ Back to Dashboard", type="secondary"):
-        st.session_state.nav = "Dashboard" # Needs nav in state to work perfectly, but rerun works
-        st.rerun()
+    if st.button("⬅️ Back to Dashboard"): st.rerun()
 
     if game_type == "Zen Snake":
-        # Swipe and Keyboard Compatible Snake
+        # [Existing swipe-snake code remains the same as previous stable version]
+        st.write("Snake Game Loading...")
         SNAKE_HTML = """
         <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; touch-action:none;">
@@ -129,22 +105,17 @@ elif nav == "Games":
         <script>
         const c=document.getElementById("s"), ctx=c.getContext("2d"), box=16;
         let score=0, d, snake=[{x:9*box, y:10*box}], food={x:5*box, y:5*box};
-        
         const mc = new Hammer(c);
         mc.get('swipe').set({ direction: Hammer.DIRECTION_ALL });
         mc.on("swipeleft", () => { if(d!="RIGHT") d="LEFT" });
         mc.on("swiperight", () => { if(d!="LEFT") d="RIGHT" });
         mc.on("swipeup", () => { if(d!="DOWN") d="UP" });
         mc.on("swipedown", () => { if(d!="UP") d="DOWN" });
-
         document.onkeydown = e => {
             if([37,38,39,40].includes(e.keyCode)) e.preventDefault();
-            if(e.keyCode==37 && d!="RIGHT") d="LEFT";
-            if(e.keyCode==38 && d!="DOWN") d="UP";
-            if(e.keyCode==39 && d!="LEFT") d="RIGHT";
-            if(e.keyCode==40 && d!="UP") d="DOWN";
+            if(e.keyCode==37 && d!="RIGHT") d="LEFT"; if(e.keyCode==38 && d!="DOWN") d="UP";
+            if(e.keyCode==39 && d!="LEFT") d="RIGHT"; if(e.keyCode==40 && d!="UP") d="DOWN";
         };
-
         function draw() {
             ctx.fillStyle="black"; ctx.fillRect(0,0,320,320);
             ctx.fillStyle="#F87171"; ctx.fillRect(food.x, food.y, box, box);
@@ -163,35 +134,55 @@ elif nav == "Games":
         let g = setInterval(draw, 120);
         </script>
         """
-        st.components.v1.html(SNAKE_HTML, height=600)
+        st.components.v1.html(SNAKE_HTML, height=550)
 
     elif game_type == "Memory Match":
         MEMORY_HTML = """
-        <div id="g" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; max-width:320px; margin:auto;"></div>
-        <button onclick="location.reload()" style="width:100%; max-width:320px; display:block; margin:20px auto; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold;">🔄 New Game</button>
+        <style>
+            .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 340px; margin: auto; perspective: 1000px; }
+            .card { height: 80px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }
+            .card.flipped { transform: rotateY(180deg); }
+            .card.wrong { animation: flash 0.4s; }
+            @keyframes flash { 0% { background: #1E293B; } 50% { background: #EF4444; } 100% { background: #1E293B; } }
+            .face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 30px; border: 2px solid #38BDF8; }
+            .front { background: #1E293B; }
+            .back { background: #334155; transform: rotateY(180deg); color: white; }
+        </style>
+        <div class="grid" id="g"></div>
+        <button onclick="location.reload()" style="width:100%; max-width:340px; display:block; margin:20px auto; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold;">🔄 New Game</button>
         <script>
-        const cards = ['🍎','🍎','💎','💎','🌟','🌟','🚀','🚀','🌈','🌈','🔥','🔥','🍀','🍀','🎁','🎁'];
-        let shuffled = cards.sort(() => 0.5 - Math.random());
-        let sel = [];
-        const board = document.getElementById('g');
+            const icons = ['🍎','🍎','💎','💎','🌟','🌟','🚀','🚀','🌈','🌈','🔥','🔥','🍀','🍀','🎁','🎁'];
+            let shuffled = icons.sort(() => 0.5 - Math.random());
+            let flipped = [];
+            let lock = false;
+            const board = document.getElementById('g');
 
-        shuffled.forEach((s, i) => {
-            const el = document.createElement('div');
-            el.style = "height:70px; background:#1E293B; border:2px solid #38BDF8; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:25px; cursor:pointer; color:transparent; transition: 0.3s;";
-            el.dataset.s = s;
-            el.onclick = function() {
-                if (sel.length < 2 && this.style.color === 'transparent') {
-                    this.style.color = 'white';
-                    this.style.background = '#334155';
-                    sel.push(this);
-                    if (sel.length === 2) {
-                        if (sel[0].dataset.s === sel[1].dataset.s) { sel = []; }
-                        else { setTimeout(() => { sel.forEach(c => { c.style.color='transparent'; c.style.background='#1E293B'; }); sel = []; }, 600); }
+            shuffled.forEach(icon => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `<div class="face front"></div><div class="face back">${icon}</div>`;
+                card.dataset.icon = icon;
+                card.onclick = function() {
+                    if(lock || this.classList.contains('flipped')) return;
+                    this.classList.add('flipped');
+                    flipped.push(this);
+                    if(flipped.length === 2) {
+                        lock = true;
+                        if(flipped[0].dataset.icon === flipped[1].dataset.icon) {
+                            flipped = [];
+                            lock = false;
+                        } else {
+                            flipped.forEach(c => c.classList.add('wrong'));
+                            setTimeout(() => {
+                                flipped.forEach(c => { c.classList.remove('flipped'); c.classList.remove('wrong'); });
+                                flipped = [];
+                                lock = false;
+                            }, 800);
+                        }
                     }
-                }
-            };
-            board.appendChild(el);
-        });
+                };
+                board.appendChild(card);
+            });
         </script>
         """
-        st.components.v1.html(MEMORY_HTML, height=500)
+        st.components.v1.html(MEMORY_HTML, height=550)
