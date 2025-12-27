@@ -12,16 +12,23 @@ st.markdown("""
 <style>
     .stApp { background-color: #0F172A; color: #F8FAFC; }
     [data-testid="column"] { width: 100% !important; min-width: 100% !important; }
+    
+    /* Optimized buttons for mobile tapping */
     .stButton>button { 
         border-radius: 15px; font-weight: 600; height: 3.5em; 
         width: 100%; border: none; font-size: 16px !important;
     }
+    
     .portal-card { 
         background: #1E293B; padding: 15px; border-radius: 20px; 
         border: 1px solid #334155; margin-bottom: 15px; 
     }
-    /* Prevents the page from bouncing while swiping in games */
-    .game-box { touch-action: none; overflow: hidden; }
+    
+    /* Game Layout Styling */
+    .game-container {
+        display: flex; flex-direction: column; align-items: center;
+        background: #1E293B; border-radius: 20px; padding: 15px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -32,7 +39,6 @@ client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 if "auth" not in st.session_state:
     st.session_state.auth = {"logged_in": False, "mid": None, "role": "user"}
 if "cooper_logs" not in st.session_state: st.session_state.cooper_logs = []
-if "clara_logs" not in st.session_state: st.session_state.clara_logs = []
 
 def get_data(worksheet_name):
     try:
@@ -40,14 +46,6 @@ def get_data(worksheet_name):
         df.columns = [str(c).strip().lower() for c in df.columns]
         return df
     except: return pd.DataFrame()
-
-def save_chat_to_sheets(agent, role, content):
-    new_entry = pd.DataFrame([{
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "memberid": st.session_state.auth['mid'],
-        "agent": agent, "role": role, "content": content
-    }])
-    conn.update(worksheet="ChatLogs", data=pd.concat([get_data("ChatLogs"), new_entry], ignore_index=True))
 
 # --- 3. LOGIN & DUPLICATE PROTECTION ---
 if not st.session_state.auth["logged_in"]:
@@ -78,8 +76,7 @@ if not st.session_state.auth["logged_in"]:
     st.stop()
 
 # --- 4. NAVIGATION ---
-tabs = ["🏠 Cooper", "🛋️ Clara", "🎮 Games"]
-if st.session_state.auth['role'] == "admin": tabs.append("🛡️ Admin")
+tabs = ["🏠 Cooper", "🎮 Games", "🛡️ Admin"] if st.session_state.auth['role'] == "admin" else ["🏠 Cooper", "🎮 Games"]
 nav = st.tabs(tabs)
 
 # --- 5. COOPER ---
@@ -92,92 +89,82 @@ with nav[0]:
         st.toast("Synced!")
     st.markdown('</div>', unsafe_allow_html=True)
     
-    for m in st.session_state.cooper_logs:
-        st.chat_message(m["role"]).write(m["content"])
+    # Simple Chat
     if p := st.chat_input("Speak with Cooper..."):
         st.session_state.cooper_logs.append({"role": "user", "content": p})
-        save_chat_to_sheets("Cooper", "user", p)
-        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a companion."}]+st.session_state.cooper_logs[-3:]).choices[0].message.content
+        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper."}]+st.session_state.cooper_logs[-3:]).choices[0].message.content
         st.session_state.cooper_logs.append({"role": "assistant", "content": res})
-        save_chat_to_sheets("Cooper", "assistant", res)
         st.rerun()
 
-# --- 6. CLARA ---
+# --- 6. GAMES (D-PAD CONTROLS) ---
 with nav[1]:
-    df_l = get_data("Sheet1")
-    if not df_l.empty:
-        df_p = df_l[df_l['memberid'].astype(str).str.lower() == st.session_state.auth['mid']].copy()
-        if not df_p.empty:
-            df_p['timestamp'] = pd.to_datetime(df_p['timestamp'])
-            fig = go.Figure(go.Scatter(x=df_p['timestamp'], y=df_p['energylog'], fill='tozeroy', line=dict(color='#F472B6')))
-            fig.update_layout(height=250, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"))
-            st.plotly_chart(fig, use_container_width=True)
+    game_mode = st.radio("Select Game", ["Snake D-Pad", "2048 D-Pad"], horizontal=True)
 
-# --- 7. GAMES (SWIPE ENABLED) ---
-with nav[2]:
-    game_mode = st.radio("Select Game", ["Snake Swipe", "2048 Swipe"], horizontal=True)
-    
-    if game_mode == "Snake Swipe":
-        SNAKE_HTML = """
-        <div class="game-box" style="display:flex; flex-direction:column; align-items:center; background:#1E293B; border-radius:20px; padding:15px; touch-action:none;">
-            <canvas id="sc" width="300" height="300" style="background:#0F172A; border:2px solid #38BDF8; border-radius:10px;"></canvas>
-            <p style="color:#38BDF8; font-weight:bold; margin-top:10px;" id="score">Score: 0</p>
+    # REUSABLE D-PAD CSS
+    DPAD_STYLE = """
+    <style>
+        .dpad { display: grid; grid-template-columns: repeat(3, 70px); grid-gap: 10px; margin-top: 20px; }
+        .btn { width: 70px; height: 70px; background: #334155; border: none; border-radius: 15px; color: white; font-size: 24px; font-weight: bold; cursor: pointer; }
+        .btn:active { background: #38BDF8; }
+        .empty { visibility: hidden; }
+    </style>
+    """
+
+    if game_mode == "Snake D-Pad":
+        SNAKE_HTML = f"""
+        {DPAD_STYLE}
+        <div class="game-container">
+            <canvas id="sc" width="280" height="280" style="background:#0F172A; border:2px solid #38BDF8; border-radius:10px;"></canvas>
+            <div class="dpad">
+                <div class="empty"></div><button class="btn" onclick="d='UP'">▲</button><div class="empty"></div>
+                <button class="btn" onclick="d='LEFT'">◀</button><button class="btn" onclick="d='DOWN'">▼</button><button class="btn" onclick="d='RIGHT'">▶</button>
+            </div>
+            <button onclick="reset()" style="margin-top:15px; width:230px; padding:10px; background:#38BDF8; border:none; border-radius:10px; color:white;">RESTART</button>
         </div>
         <script>
             const canvas = document.getElementById("sc"); const ctx = canvas.getContext("2d");
-            let box = 15; let snake, food, d, game;
-            let tsX, tsY;
-            canvas.addEventListener('touchstart', e => { tsX = e.touches[0].clientX; tsY = e.touches[0].clientY; });
-            canvas.addEventListener('touchend', e => {
-                let dx = e.changedTouches[0].clientX - tsX; let dy = e.changedTouches[0].clientY - tsY;
-                if(Math.abs(dx) > Math.abs(dy)) { if(dx>30 && d!='LEFT') d='RIGHT'; else if(dx<-30 && d!='RIGHT') d='LEFT'; }
-                else { if(dy>30 && d!='UP') d='DOWN'; else if(dy<-30 && d!='DOWN') d='UP'; }
-            });
-            function reset() { snake=[{x:9*box,y:10*box}]; food={x:Math.floor(Math.random()*19)*box,y:Math.floor(Math.random()*19)*box}; d=null; if(game) clearInterval(game); game=setInterval(draw,130); }
-            function draw() {
-                ctx.fillStyle="#0F172A"; ctx.fillRect(0,0,300,300);
+            let box = 14; let snake, food, d, game;
+            function reset() {{ snake=[{{x:9*box,y:10*box}}]; food={{x:Math.floor(Math.random()*19)*box,y:Math.floor(Math.random()*19)*box}}; d=null; if(game) clearInterval(game); game=setInterval(draw,130); }}
+            function draw() {{
+                ctx.fillStyle="#0F172A"; ctx.fillRect(0,0,280,280);
                 ctx.fillStyle="#F87171"; ctx.fillRect(food.x, food.y, box, box);
-                snake.forEach((p,i)=>{ ctx.fillStyle=i==0?"#38BDF8":"#334155"; ctx.fillRect(p.x,p.y,box,box); });
-                let head = {x:snake[0].x, y:snake[0].y};
+                snake.forEach((p,i)=>{{ ctx.fillStyle=i==0?"#38BDF8":"#334155"; ctx.fillRect(p.x,p.y,box,box); }});
+                let head = {{x:snake[0].x, y:snake[0].y}};
                 if(d=='LEFT') head.x-=box; if(d=='UP') head.y-=box; if(d=='RIGHT') head.x+=box; if(d=='DOWN') head.y+=box;
-                if(head.x==food.x && head.y==food.y) food={x:Math.floor(Math.random()*19)*box,y:Math.floor(Math.random()*19)*box};
+                if(head.x==food.x && head.y==food.y) food={{x:Math.floor(Math.random()*19)*box,y:Math.floor(Math.random()*19)*box}};
                 else if(d) snake.pop();
-                if(head.x<0||head.x>=300||head.y<0||head.y>=300||(d && snake.some(s=>s.x==head.x&&s.y==head.y))) reset();
-                if(d) snake.unshift(head); document.getElementById("score").innerText="Score: "+(snake.length-1);
-            }
+                if(head.x<0||head.x>=280||head.y<0||head.y>=280||(d && snake.some(s=>s.x==head.x&&s.y==head.y))) reset();
+                if(d) snake.unshift(head);
+            }}
             reset();
         </script>
         """
-        st.components.v1.html(SNAKE_HTML, height=450)
+        st.components.v1.html(SNAKE_HTML, height=650)
 
     else:
-        T2048_HTML = """
-        <div id="g2048" class="game-box" style="display:flex; flex-direction:column; align-items:center; background:#1E293B; border-radius:20px; padding:15px; touch-action:none;">
-            <div id="grid" style="display:grid; grid-template-columns:repeat(4,65px); gap:8px; background:#0F172A; padding:10px; border-radius:10px;"></div>
-            <h3 id="sc2" style="color:#38BDF8; margin-top:10px;">Score: 0</h3>
+        T2048_HTML = f"""
+        {DPAD_STYLE}
+        <div class="game-container">
+            <div id="grid" style="display:grid; grid-template-columns:repeat(4,60px); gap:8px; background:#0F172A; padding:10px; border-radius:10px;"></div>
+            <div class="dpad">
+                <div class="empty"></div><button class="btn" onclick="mv(0,4,1);add();ren();">▲</button><div class="empty"></div>
+                <button class="btn" onclick="mv(0,1,4);add();ren();">◀</button><button class="btn" onclick="mv(12,-4,1);add();ren();">▼</button><button class="btn" onclick="mv(3,-1,4);add();ren();">▶</button>
+            </div>
         </div>
         <script>
-            let board=Array(16).fill(0); let score=0; let tsX, tsY;
-            document.getElementById('g2048').addEventListener('touchstart', e => { tsX=e.touches[0].clientX; tsY=e.touches[0].clientY; });
-            document.getElementById('g2048').addEventListener('touchend', e => {
-                let dx=e.changedTouches[0].clientX-tsX; let dy=e.changedTouches[0].clientY-tsY;
-                if(Math.abs(dx)>Math.abs(dy)) { if(dx>40) mv(3,-1,4); else if(dx<-40) mv(0,1,4); }
-                else { if(dy>40) mv(12,-4,1); else if(dy<-40) mv(0,4,1); }
-                add(); ren();
-            });
-            function add(){ let e=board.map((v,i)=>v==0?i:null).filter(v=>v!=null); if(e.length) board[e[Math.floor(Math.random()*e.length)]]=2; }
-            function ren(){ 
+            let board=Array(16).fill(0); let score=0;
+            function add(){{ let e=board.map((v,i)=>v==0?i:null).filter(v=>v!=null); if(e.length) board[e[Math.floor(Math.random()*e.length)]]=2; }}
+            function ren(){{ 
                 const g=document.getElementById('grid'); g.innerHTML='';
-                board.forEach(v=>{ const t=document.createElement('div'); t.style=`width:65px;height:65px;background:${v?'#38BDF8':'#334155'};color:white;display:flex;align-items:center;justify-content:center;border-radius:8px;font-weight:bold;`; t.innerText=v||''; g.appendChild(t); });
-                document.getElementById('sc2').innerText="Score: "+score;
-            }
-            function mv(s,st,sd){ for(let i=0;i<4;i++){ let l=[]; for(let j=0;j<4;j++) l.push(board[s+i*sd+j*st]); let f=l.filter(v=>v); for(let j=0;j<f.length-1;j++) if(f[j]==f[j+1]){ f[j]*=2; score+=f[j]; f.splice(j+1,1); } while(f.length<4) f.push(0); for(let j=0;j<4;j++) board[s+i*sd+j*st]=f[j]; } }
+                board.forEach(v=>{{ const t=document.createElement('div'); t.style=`width:60px;height:60px;background:${{v?'#38BDF8':'#334155'}};color:white;display:flex;align-items:center;justify-content:center;border-radius:8px;font-weight:bold;`; t.innerText=v||''; g.appendChild(t); }});
+            }}
+            function mv(s,st,sd){{ for(let i=0;i<4;i++){{ let l=[]; for(let j=0;j<4;j++) l.push(board[s+i*sd+j*st]); let f=l.filter(v=>v); for(let j=0;j<f.length-1;j++) if(f[j]==f[j+1]){{ f[j]*=2; f.splice(j+1,1); }} while(f.length<4) f.push(0); for(let j=0;j<4;j++) board[s+i*sd+j*st]=f[j]; }} }}
             add(); add(); ren();
         </script>
         """
-        st.components.v1.html(T2048_HTML, height=450)
+        st.components.v1.html(T2048_HTML, height=650)
 
-# --- 8. ADMIN ---
+# --- 7. ADMIN ---
 if st.session_state.auth['role'] == "admin":
     with nav[-1]:
         st.subheader("🛡️ Admin Log Search")
@@ -187,6 +174,4 @@ if st.session_state.auth['role'] == "admin":
             df_logs = df_logs[df_logs['content'].astype(str).str.contains(q, case=False)]
         st.dataframe(df_logs, use_container_width=True)
 
-if st.button("Logout"):
-    st.session_state.clear()
-    st.rerun()
+st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
