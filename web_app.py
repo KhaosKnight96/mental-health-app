@@ -75,22 +75,27 @@ if not st.session_state.auth["logged_in"]:
             else: st.error("Access Denied")
     st.stop()
 
-# --- 3. THE "GHOST BUTTON" ROLE SELECTION ---
+# --- 3. THE FINAL OVERLAY ROLE SELECTION ---
 if st.session_state.auth["role"] is None:
     st.write("##")
-    st.markdown("<h1 style='text-align: center; color: white; font-family: sans-serif;'>Select Your Portal</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: white;'>Select Your Portal</h1>", unsafe_allow_html=True)
     st.write("##")
     
     st.markdown("""
     <style>
-        /* Container that holds both the visual card and the button */
-        .div-button {
+        /* This targets the Streamlit container specifically to prevent "ghost" spacing */
+        [data-testid="stVerticalBlock"] > div:has(div.role-card-wrapper) {
+            gap: 0px;
+        }
+
+        .role-card-wrapper {
             position: relative;
             height: 350px;
             width: 100%;
+            margin-bottom: 20px;
         }
 
-        /* The Visual Card (The part you actually see) */
+        /* The Visual Card */
         .role-card-visual {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -102,27 +107,33 @@ if st.session_state.auth["role"] is None:
             align-items: center;
             justify-content: center;
             padding: 20px;
-            z-index: 1;
+            z-index: 1; /* Sits behind the button */
             transition: all 0.3s ease;
         }
 
-        /* TARGETING THE STREAMLIT BUTTON: Making it a 'Ghost' */
-        .div-button .stButton button {
+        /* The Streamlit Button Wrapper */
+        /* We target the div that Streamlit puts the button inside */
+        .role-card-wrapper .stButton {
             position: absolute;
             top: 0; left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10; /* Sits on top of everything */
+        }
+
+        /* The Actual Button Element */
+        .role-card-wrapper .stButton button {
             width: 100% !important;
             height: 350px !important;
-            background: transparent !important;
-            color: transparent !important; /* Makes text invisible */
+            background-color: transparent !important;
+            color: transparent !important;
             border: none !important;
-            font-size: 0px !important; /* Shrinks text to nothing */
-            z-index: 2; /* Sits on top of the visual card */
-            cursor: pointer;
+            font-size: 0px !important;
             box-shadow: none !important;
         }
 
-        /* Hover effect: When the ghost button is hovered, we style the visual card below it */
-        .div-button:hover .role-card-visual {
+        /* Hover effect: We trigger this when the mouse is anywhere in the wrapper */
+        .role-card-wrapper:hover .role-card-visual {
             border-color: #38BDF8;
             transform: translateY(-10px);
             background: #263345;
@@ -131,39 +142,40 @@ if st.session_state.auth["role"] is None:
         
         .role-icon { font-size: 60px; margin-bottom: 10px; }
         .role-label { font-size: 28px; font-weight: bold; color: white; margin-bottom: 5px; }
-        .role-desc { font-size: 14px; color: #94A3B8; text-align: center; padding: 0 10px; }
+        .role-desc { font-size: 14px; color: #94A3B8; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
     col1, col2, col3, col4, col5 = st.columns([1, 3, 0.5, 3, 1])
     
     with col2:
+        # We wrap both the HTML and the Button in one named div
+        st.markdown('<div class="role-card-wrapper">', unsafe_allow_html=True)
         st.markdown(f"""
-            <div class="div-button">
                 <div class="role-card-visual">
                     <div class="role-icon">👤</div>
                     <div class="role-label">Patient</div>
                     <div class="role-desc">Log energy, chat with Cooper, and visit the Zen Zone.</div>
                 </div>
-            </div>
         """, unsafe_allow_html=True)
-        if st.button("invisible_p", key="select_patient"):
+        if st.button("p_btn", key="select_patient"):
             st.session_state.auth["role"] = "patient"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with col4:
+        st.markdown('<div class="role-card-wrapper">', unsafe_allow_html=True)
         st.markdown(f"""
-            <div class="div-button">
                 <div class="role-card-visual">
                     <div class="role-icon">👩‍⚕️</div>
                     <div class="role-label">Caregiver</div>
                     <div class="role-desc">Analyze patient trends with Clara and view health logs.</div>
                 </div>
-            </div>
         """, unsafe_allow_html=True)
-        if st.button("invisible_c", key="select_caregiver"):
+        if st.button("c_btn", key="select_caregiver"):
             st.session_state.auth["role"] = "caregiver"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
             
     st.stop()
 # --- 4. SIDEBAR NAVIGATION ---
@@ -239,6 +251,7 @@ elif mode == "Analytics":
 elif mode == "Memory Match":
     st.title("🧩 Memory Match")
     st.info("The 3D memory game logic is ready to be pasted here.")
+
 
 
 
