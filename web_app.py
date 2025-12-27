@@ -75,66 +75,80 @@ if not st.session_state.auth["logged_in"]:
             else: st.error("Access Denied")
     st.stop()
 
-# --- 3. BEAUTIFIED ROLE SELECTION (Side-by-Side Hero Cards) ---
+# --- 3. INVISIBLE OVERLAY ROLE SELECTION ---
 if st.session_state.auth["role"] is None:
     st.write("##")
-    st.markdown(f"<h1 style='text-align: center; font-size: 2.5rem; color: white;'>Welcome, {st.session_state.auth['name']}</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #94A3B8; font-size: 1.1rem;'>Please select your portal to continue</p>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: white;'>Select Your Portal</h1>", unsafe_allow_html=True)
     st.write("##")
     
-    # CSS for the Side-by-Side Cards
+    # CSS to make the functional button invisible but full-sized
     st.markdown("""
     <style>
-        .role-card-container {
-            background: rgba(30, 41, 59, 0.5);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            border-radius: 24px;
-            padding: 40px 20px;
-            text-align: center;
-            transition: all 0.3s ease;
-            height: 320px;
+        /* Container for the Card + Hidden Button */
+        .div-button {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+
+        /* The Visual Card */
+        .role-card-visual {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #1E293B;
+            border: 2px solid #334155;
+            border-radius: 20px;
             display: flex;
             flex-direction: column;
-            justify-content: center;
             align-items: center;
+            justify-content: center;
+            transition: 0.3s;
+            z-index: 1;
         }
-        .role-card-container:hover {
-            background: rgba(56, 189, 248, 0.1);
+
+        /* The Actual Streamlit Button (Hidden but clickable) */
+        .div-button .stButton button {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100% !important;
+            height: 300px !important;
+            background-color: transparent !important;
+            color: transparent !important;
+            border: none !important;
+            z-index: 2; /* Sits on top of the card */
+            cursor: pointer;
+        }
+
+        /* Hover Effect applied to the visual card when the hidden button is hovered */
+        .div-button:hover .role-card-visual {
             border-color: #38BDF8;
-            transform: translateY(-10px);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            transform: translateY(-5px);
+            background: #263345;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.4);
         }
-        .role-icon { font-size: 60px; margin-bottom: 20px; }
-        .role-name { font-size: 24px; font-weight: 700; color: white !important; margin-bottom: 10px; }
-        .role-text { font-size: 14px; color: #94A3B8 !important; }
+        
+        .role-icon { font-size: 50px; }
+        .role-label { font-size: 24px; font-weight: bold; margin-top: 10px; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
     col1, col2, col3, col4, col5 = st.columns([1, 3, 0.5, 3, 1])
     
     with col2:
-        st.markdown("""
-            <div class="role-card-container">
-                <div class="role-icon">👤</div>
-                <div class="role-name">Patient Portal</div>
-                <div class="role-text">Log daily energy, chat with Cooper, and access the Zen Zone games.</div>
-            </div>
-        """, unsafe_allow_html=True)
-        if st.button("Access Patient View", use_container_width=True, type="primary"):
+        st.markdown('<div class="div-button">', unsafe_allow_html=True)
+        st.markdown('<div class="role-card-visual"><div class="role-icon">👤</div><div class="role-label">Patient</div></div>', unsafe_allow_html=True)
+        if st.button("P_Button", key="select_patient"):
             st.session_state.auth["role"] = "patient"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with col4:
-        st.markdown("""
-            <div class="role-card-container">
-                <div class="role-icon">👩‍⚕️</div>
-                <div class="role-name">Caregiver Command</div>
-                <div class="role-text">Analyze health trends with Clara and monitor patient logs.</div>
-            </div>
-        """, unsafe_allow_html=True)
-        if st.button("Access Caregiver View", use_container_width=True, type="primary"):
+        st.markdown('<div class="div-button">', unsafe_allow_html=True)
+        st.markdown('<div class="role-card-visual"><div class="role-icon">👩‍⚕️</div><div class="role-label">Caregiver</div></div>', unsafe_allow_html=True)
+        if st.button("C_Button", key="select_caregiver"):
             st.session_state.auth["role"] = "caregiver"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
             
     st.stop()
 # --- 4. SIDEBAR NAVIGATION ---
@@ -210,4 +224,5 @@ elif mode == "Analytics":
 elif mode == "Memory Match":
     st.title("🧩 Memory Match")
     st.info("The 3D memory game logic is ready to be pasted here.")
+
 
