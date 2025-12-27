@@ -319,14 +319,21 @@ with main_nav[2]:
         T2048_HTML = f"""
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; font-family:sans-serif;">
             <div id="grid" style="display:grid; grid-template-columns:repeat(4, 60px); grid-gap:10px; background:#0F172A; padding:10px; border-radius:10px;"></div>
-            <h2 id="sc" style="color:#38BDF8; margin-top:15px;">Score: 0</h2>
+            <div style="display:flex; justify-content:space-between; width:270px; align-items:center;">
+                <h2 id="sc" style="color:#38BDF8; margin-top:15px;">Score: 0</h2>
+                <button onclick="init()" style="background:#334155; color:white; border:none; border-radius:5px; padding:5px 10px; cursor:pointer; margin-top:10px;">Reset</button>
+            </div>
         </div>
         <script>
             {JS_SOUNDS}
             const gridDisp = document.getElementById('grid');
             let board = Array(16).fill(0), score = 0;
 
-            function init() {{ addTile(); addTile(); render(); }}
+            function init() {{ 
+                board = Array(16).fill(0); 
+                score = 0;
+                addTile(); addTile(); render(); 
+            }}
 
             function addTile() {{
                 let empty = board.map((v, i) => v === 0 ? i : null).filter(v => v !== null);
@@ -351,6 +358,27 @@ with main_nav[2]:
                     gridDisp.appendChild(tile);
                 }});
                 document.getElementById('sc').innerText = "Score: " + score;
+                checkGameOver();
+            }}
+
+            function checkGameOver() {{
+                // 1. Check for empty cells
+                if (board.includes(0)) return;
+
+                // 2. Check for possible merges (horizontally and vertically)
+                for (let i = 0; i < 4; i++) {{
+                    for (let j = 0; j < 4; j++) {{
+                        let current = board[i * 4 + j];
+                        // Check right neighbor
+                        if (j < 3 && current === board[i * 4 + (j + 1)]) return;
+                        // Check bottom neighbor
+                        if (i < 3 && current === board[(i + 1) * 4 + j]) return;
+                    }}
+                }}
+
+                // If no empty cells and no merges found
+                playSound(150, 'sawtooth', 0.5);
+                alert("Game Over! No moves left. Your score: " + score);
             }}
 
             window.addEventListener('keydown', e => {{
@@ -361,6 +389,7 @@ with main_nav[2]:
                 if(e.code === "ArrowRight") move(3, -1, 4);
                 if(e.code === "ArrowUp") move(0, 4, 1);
                 if(e.code === "ArrowDown") move(12, -4, 1);
+                
                 if (JSON.stringify(old) !== JSON.stringify(board)) {{
                     playSound(523, 'sine', 0.05);
                     addTile(); render();
@@ -391,6 +420,7 @@ with main_nav[3]:
     if st.button("Confirm Logout"):
         st.session_state.auth = {"logged_in": False}
         st.rerun()
+
 
 
 
