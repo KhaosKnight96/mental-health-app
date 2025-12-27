@@ -24,29 +24,31 @@ client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 if "auth" not in st.session_state:
     st.session_state.auth = {"logged_in": False, "cid": None, "name": None, "role": None}
 if "chat_log" not in st.session_state: st.session_state.chat_log = []
-if "current_page" not in st.session_state: st.session_state.current_page = "Dashboard"
 
 def get_clean_users():
-    """Fetches real-time data and handles empty cells (NaNs)."""
+    """Force-fetches the latest data from Google Sheets."""
     try:
+        # ttl=0 is critical: it forces a fresh download every time
         df = conn.read(worksheet="Users", ttl=0)
         df.columns = [str(c).lower().replace(" ", "").strip() for c in df.columns]
         mapping = {'username': 'Username', 'password': 'Password', 'fullname': 'Fullname', 'highscore': 'HighScore'}
         df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
         
-        # FIX: Fill empty cells in HighScore with 0 and ensure they are numbers
+        # Ensure HighScore is numeric and handles NaNs
         if 'HighScore' in df.columns:
-            df['HighScore'] = pd.to_numeric(df['HighScore'], errors='coerce').fillna(0)
+            df['HighScore'] = pd.to_numeric(df['HighScore'], errors='coerce').fillna(0).astype(int)
         return df
     except:
         return pd.DataFrame()
 
-# --- 3. PERSISTENT HIGH SCORE SYNC ---
+# --- 3. PERSISTENT HIGH SCORE SYNC (THE FIX) ---
 qp = st.query_params
 if "last_score" in qp and st.session_state.auth.get("logged_in"):
     try:
-        new_s = int(float(qp["last_score"])) # Safety: convert to float then int
+        new_s = int(float(qp["last_score"]))
+        # Force a fresh fetch right now
         udf = get_clean_users()
+        
         if not udf.empty:
             cid_str = str(st.session_state.auth['cid'])
             user_mask = udf['Username'].astype(str) == cid_str
@@ -57,14 +59,17 @@ if "last_score" in qp and st.session_state.auth.get("logged_in"):
                 
                 if new_s > current_high:
                     udf.at[idx, 'HighScore'] = new_s
+                    # Force overwrite the sheet with new data
                     conn.update(worksheet="Users", data=udf)
+                    # Clear internal cache so Dashboard doesn't show the old score
                     st.cache_data.clear()
                     st.toast(f"🏆 NEW RECORD SAVED: {new_s}!", icon="🔥")
                 else:
-                    st.toast(f"Score: {new_s} (Best: {current_high})", icon="🎮")
+                    st.toast(f"Final Score: {new_s} (Best: {current_high})", icon="🎮")
     except Exception as e:
-        st.error(f"Sync error: {e}")
+        st.error(f"Sync issue: {e}")
     
+    # Clean URL and hard reload to update the Dashboard display
     st.query_params.clear()
     st.rerun()
 
@@ -85,7 +90,7 @@ if not st.session_state.auth["logged_in"]:
                 else: st.error("Invalid credentials.")
     st.stop()
 
-if st.session_state.auth["role"] is None:
+if st.session_state.auth.get("role") is None:
     _, col, _ = st.columns([1, 2, 1])
     with col:
         st.markdown(f"<h2 style='text-align:center;'>Welcome, {st.session_state.auth['name']}</h2>", unsafe_allow_html=True)
@@ -104,25 +109,27 @@ with st.sidebar:
     side_opt = st.radio("Navigation", [main_nav])
     with st.expander("🧩 Zen Zone"):
         game_choice = st.selectbox("Select Break", ["Select a Game", "Memory Match", "Snake"])
-    st.session_state.current_page = game_choice if game_choice != "Select a Game" else side_opt
+    
+    current_page = game_choice if game_choice != "Select a Game" else side_opt
     if st.button("🚪 Logout"):
         for k in list(st.session_state.keys()): del st.session_state[k]
         st.rerun()
 
 # --- 6. PAGE CONTENT ---
-if st.session_state.current_page == "Dashboard":
+if current_page == "Dashboard":
     st.markdown(f'<div style="background: linear-gradient(90deg, #219EBC, #023047); padding: 25px; border-radius: 20px;"><h1>Hi {cname}! ☀️</h1></div>', unsafe_allow_html=True)
     col1, col2 = st.columns([1, 2])
     with col1:
+        # High Score with safety
         udf = get_clean_users()
         pb = 0
         if not udf.empty and 'HighScore' in udf.columns:
             row = udf[udf['Username'].astype(str) == str(cid)]
             if not row.empty:
-                # FIX: Convert to int safely
                 pb = int(row['HighScore'].values[0])
         st.markdown(f'<div class="portal-card"><h3 style="color:#FFD700;">🏆 Snake Record: {pb}</h3></div>', unsafe_allow_html=True)
         
+        # Energy Log
         st.markdown('<div class="portal-card"><h3>✨ Energy Log</h3>', unsafe_allow_html=True)
         vibe = st.select_slider("Vibe:", options=["Resting", "Low", "Steady", "Good", "Active", "Vibrant", "Radiant"], value="Steady")
         if st.button("Log Energy", use_container_width=True):
@@ -132,7 +139,6 @@ if st.session_state.current_page == "Dashboard":
             conn.update(worksheet="Sheet1", data=pd.concat([df, new_row]))
             st.balloons()
         st.markdown('</div>', unsafe_allow_html=True)
-
     with col2:
         st.markdown('<div class="portal-card"><h3>🤖 Cooper AI</h3>', unsafe_allow_html=True)
         chat_box = st.container(height=350)
@@ -147,13 +153,13 @@ if st.session_state.current_page == "Dashboard":
             st.session_state.chat_log.append({"type":"C", "msg":res}); st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-elif st.session_state.current_page == "Analytics":
+elif current_page == "Analytics":
     st.title("👩‍⚕️ Caregiver Command")
     data = conn.read(worksheet="Sheet1", ttl=0)
     f_data = data[data['CoupleID'].astype(str) == str(cid)]
     if not f_data.empty: st.line_chart(f_data.set_index("Date")['Energy'])
 
-elif st.session_state.current_page == "Memory Match":
+elif current_page == "Memory Match":
     st.title("🧩 3D Memory Match")
     MEM_HTML = """
     <div id="game-container" style="position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; background: #1E293B; border-radius: 20px; padding: 20px;">
@@ -199,7 +205,7 @@ elif st.session_state.current_page == "Memory Match":
     """
     st.components.v1.html(MEM_HTML, height=600)
 
-elif st.session_state.current_page == "Snake":
+elif current_page == "Snake":
     st.title("🐍 Zen Snake")
     SNAKE_HTML = """
     <div id="game-container" style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:24px; position: relative;">
