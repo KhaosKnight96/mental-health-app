@@ -48,7 +48,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
 if "auth" not in st.session_state:
-    st.session_state.auth = {"logged_in": False, "cid": None, "name": None}
+    st.session_state.auth = {"logged_in": False, "cid": None, "name": None, "role": "user"}
 if "cooper_logs" not in st.session_state: st.session_state.cooper_logs = []
 if "clara_logs" not in st.session_state: st.session_state.clara_logs = []
 
@@ -85,7 +85,14 @@ if not st.session_state.auth["logged_in"]:
             df = get_data("Users")
             m = df[(df['Username'].astype(str) == u) & (df['Password'].astype(str) == p)]
             if not m.empty:
-                st.session_state.auth.update({"logged_in": True, "cid": u, "name": m.iloc[0]['Fullname']})
+                user_role = m.iloc[0]['Role'] if 'Role' in m.columns else 'user'
+                st.session_state.auth.update({
+                    "logged_in": True, 
+                    "cid": u, 
+                    "name": m.iloc[0]['Fullname'],
+                    "role": str(user_role).lower()
+                })
+                # Load History
                 all_chats = get_data("ChatLogs")
                 if not all_chats.empty:
                     user_chats = all_chats[all_chats['CoupleID'].astype(str) == str(u)]
@@ -101,14 +108,18 @@ if not st.session_state.auth["logged_in"]:
         pw = st.text_input("Password", type="password")
         if st.button("Register"):
             df = get_data("Users")
-            new_user = pd.DataFrame([{"Fullname": n, "Username": c, "Password": pw}])
+            new_user = pd.DataFrame([{"Fullname": n, "Username": c, "Password": pw, "Role": "user"}])
             conn.update(worksheet="Users", data=pd.concat([df, new_user], ignore_index=True))
             st.success("Account created!")
     st.stop()
 
 # --- 4. NAVIGATION ---
-st.markdown(f"### Hello, {st.session_state.auth['name']} ✨")
-main_nav = st.tabs(["🏠 Cooper's Corner", "🛋️ Clara's Couch", "🎮 Games", "🚪 Logout"])
+nav_options = ["🏠 Cooper's Corner", "🛋️ Clara's Couch", "🎮 Games"]
+if st.session_state.auth.get("role") == "admin":
+    nav_options.append("🛡️ Admin Portal")
+nav_options.append("🚪 Logout")
+
+main_nav = st.tabs(nav_options)
 
 # --- 5. COOPER'S CORNER ---
 with main_nav[0]:
@@ -156,7 +167,7 @@ with main_nav[1]:
                 if st.button("✨ Generate Clara's Weekly Insight"):
                     last_week = df_p[df_p['Timestamp'] > (datetime.now() - timedelta(days=7))]
                     data_summary = last_week['EnergyLog'].to_list()
-                    insight = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara, a clinical analyst. Summarize energy levels into 3 professional sentences."}, {"role":"user","content": f"Data: {data_summary}"}]).choices[0].message.content
+                    insight = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara, a clinical analyst. Summarize data professionally."} ,{"role":"user","content": f"Data: {data_summary}"}]).choices[0].message.content
                     st.info(insight)
         except: st.info("Recording history needed.")
     with c2:
@@ -174,9 +185,7 @@ with main_nav[1]:
 
 # --- 7. GAMES ---
 with main_nav[2]:
-    st.markdown('<div class="portal-card">', unsafe_allow_html=True)
     gt = st.radio("Select Activity", ["Modern Snake", "Memory Match", "2048 Logic"], horizontal=True)
-    st.markdown('</div>', unsafe_allow_html=True)
     
     JS_SOUNDS = """
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -244,131 +253,71 @@ with main_nav[2]:
         MEMORY_HTML = f"""
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; position:relative; min-height:480px;">
             <div style="text-align: center; color: #38BDF8; font-family: sans-serif; margin-bottom: 15px;">
-                <span id="lvl" style="font-weight:bold; font-size:1.2em;">Level 1</span> | 
-                Matches: <span id="mtch">0</span>
+                <span id="lvl" style="font-weight:bold; font-size:1.2em;">Level 1</span> | Matches: <span id="mtch">0</span>
             </div>
-            
             <div id="g" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 100%; max-width: 400px;"></div>
-
-            <div id="overMem" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.9); border-radius:15px; flex-direction:column; align-items:center; justify-content:center; z-index:10; text-align:center; padding:20px;">
-                <h1 id="memTitle" style="color:#38BDF8; font-family:sans-serif; margin-bottom:10px;">LEVEL CLEAR!</h1>
-                <p id="memDesc" style="color:white; font-family:sans-serif; font-size:1.1em; margin-bottom:20px;">Ready for more cards?</p>
-                <button id="memBtn" onclick="nextLevel()" style="background:#38BDF8; color:white; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1em;">Next Level</button>
+            <div id="overMem" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.9); border-radius:15px; flex-direction:column; align-items:center; justify-content:center; z-index:10; text-align:center;">
+                <h1 id="memTitle" style="color:#38BDF8; font-family:sans-serif;">LEVEL CLEAR!</h1>
+                <p id="memDesc" style="color:white; font-family:sans-serif; margin-bottom:20px;">Ready for more?</p>
+                <button id="memBtn" onclick="nextLevel()" style="background:#38BDF8; color:white; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-weight:bold;">Next Level</button>
             </div>
         </div>
-
         <script>
             {JS_SOUNDS}
             const allIcons = ['🍎','💎','🌟','🚀','🌈','🔥','🍀','🎁','🦄','🐲','🍕','🎸','🪐','⚽','🍦','🍭','🎲','⚡'];
-            let currentLevel = 1;
-            let flipped = [], lock = false, matches = 0, totalPairs = 8;
-
-            function nextLevel() {{
-                if (currentLevel < 3) {{
-                    currentLevel++;
-                    loadLevel(currentLevel);
-                }} else {{
-                    currentLevel = 1;
-                    loadLevel(1);
-                }}
-            }}
-
+            let currentLevel = 1, flipped = [], lock = false, matches = 0, totalPairs = 8;
+            function nextLevel() {{ if (currentLevel < 3) {{ currentLevel++; loadLevel(currentLevel); }} else {{ currentLevel = 1; loadLevel(1); }} }}
             function loadLevel(level) {{
                 document.getElementById("overMem").style.display = "none";
-                const board = document.getElementById('g');
-                board.innerHTML = '';
-                matches = 0;
-                flipped = [];
-                
-                // Difficulty: L1=8 pairs(4x4), L2=12 pairs(6x4), L3=18 pairs(6x6)
+                const board = document.getElementById('g'); board.innerHTML = ''; matches = 0; flipped = [];
                 totalPairs = level === 1 ? 8 : (level === 2 ? 12 : 18);
                 document.getElementById('lvl').innerText = "Level " + level;
                 document.getElementById('mtch').innerText = "0 / " + totalPairs;
-
-                // Adjust grid columns based on level
                 board.style.gridTemplateColumns = (level === 1) ? "repeat(4, 1fr)" : "repeat(6, 1fr)";
-
                 let levelIcons = allIcons.slice(0, totalPairs);
                 let gameIcons = [...levelIcons, ...levelIcons].sort(() => 0.5 - Math.random());
-
                 gameIcons.forEach(icon => {{
-                    const card = document.createElement('div');
-                    card.style.height = "70px";
-                    card.style.position = "relative";
-                    card.style.transformStyle = "preserve-3d";
-                    card.style.transition = "transform 0.5s";
-                    card.style.cursor = "pointer";
-                    card.className = 'card';
-                    card.innerHTML = `
-                        <div style="position:absolute; width:100%; height:100%; backface-visibility:hidden; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:25px; border:2px solid #334155; background:#1E293B; border-color:#38BDF8;"></div>
-                        <div style="position:absolute; width:100%; height:100%; backface-visibility:hidden; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:25px; border:2px solid #334155; background:#334155; transform:rotateY(180deg); color:white;">${{icon}}</div>
-                    `;
+                    const card = document.createElement('div'); card.style.height = "70px"; card.style.position = "relative";
+                    card.style.transformStyle = "preserve-3d"; card.style.transition = "transform 0.5s"; card.style.cursor = "pointer";
+                    card.innerHTML = `<div style="position:absolute; width:100%; height:100%; backface-visibility:hidden; border-radius:8px; background:#1E293B; border:2px solid #38BDF8;"></div>
+                                      <div style="position:absolute; width:100%; height:100%; backface-visibility:hidden; border-radius:8px; background:#334155; transform:rotateY(180deg); display:flex; align-items:center; justify-content:center; font-size:25px; color:white;">${{icon}}</div>`;
                     card.dataset.icon = icon;
-                    
                     card.onclick = function() {{
                         if(lock || this.style.transform === "rotateY(180deg)") return;
-                        playSound(440, 'sine', 0.05);
-                        this.style.transform = "rotateY(180deg)";
-                        flipped.push(this);
-                        
+                        playSound(440, 'sine', 0.05); this.style.transform = "rotateY(180deg)"; flipped.push(this);
                         if(flipped.length === 2) {{
                             lock = true;
                             if(flipped[0].dataset.icon === flipped[1].dataset.icon) {{
-                                matches++;
-                                document.getElementById('mtch').innerText = matches + " / " + totalPairs;
-                                flipped = []; lock = false;
-                                setTimeout(() => playSound(880, 'sine', 0.2), 200);
-                                
-                                if(matches === totalPairs) {{
-                                    setTimeout(showWinOverlay, 600);
-                                }}
+                                matches++; document.getElementById('mtch').innerText = matches + " / " + totalPairs;
+                                flipped = []; lock = false; setTimeout(() => playSound(880, 'sine', 0.2), 200);
+                                if(matches === totalPairs) setTimeout(showWinOverlay, 600);
                             }} else {{
-                                setTimeout(() => {{ 
-                                    playSound(220, 'sine', 0.2);
-                                    flipped.forEach(c => c.style.transform = "rotateY(0deg)"); 
-                                    flipped = []; lock = false; 
-                                }}, 800);
+                                setTimeout(() => {{ playSound(220, 'sine', 0.2); flipped.forEach(c => c.style.transform = "rotateY(0deg)"); flipped = []; lock = false; }}, 800);
                             }}
                         }}
-                    }};
-                    board.appendChild(card);
+                    }}; board.appendChild(card);
                 }});
             }}
-
             function showWinOverlay() {{
-                playSound(600, 'sine', 0.4);
                 const overlay = document.getElementById("overMem");
-                const title = document.getElementById("memTitle");
-                const desc = document.getElementById("memDesc");
-                const btn = document.getElementById("memBtn");
-
-                if (currentLevel < 3) {{
-                    title.innerText = "LEVEL CLEAR!";
-                    title.style.color = "#38BDF8";
-                    desc.innerText = "Great memory! Ready for Level " + (currentLevel + 1) + "?";
-                    btn.innerText = "Next Level";
-                }} else {{
-                    title.innerText = "GRANDMASTER!";
-                    title.style.color = "#F472B6";
-                    desc.innerText = "You've conquered the maximum difficulty!";
-                    btn.innerText = "Play Again";
-                }}
+                document.getElementById("memTitle").innerText = currentLevel < 3 ? "LEVEL CLEAR!" : "GRANDMASTER!";
+                document.getElementById("memBtn").innerText = currentLevel < 3 ? "Next Level" : "Restart";
                 overlay.style.display = "flex";
             }}
-
             loadLevel(1);
         </script>
         """
         st.components.v1.html(MEMORY_HTML, height=580)
+
     elif gt == "2048 Logic":
         T2048_HTML = f"""
-        <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; font-family:sans-serif; position:relative;">
+        <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; position:relative;">
             <div id="grid" style="display:grid; grid-template-columns:repeat(4, 60px); grid-gap:10px; background:#0F172A; padding:10px; border-radius:10px;"></div>
             <h2 id="sc" style="color:#38BDF8; margin-top:15px;">Score: 0</h2>
             <div id="over2048" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.9); border-radius:15px; flex-direction:column; align-items:center; justify-content:center; z-index:10;">
-                <h1 style="color:#38BDF8; font-family:sans-serif; margin-bottom:5px;">OUT OF MOVES</h1>
-                <p id="finalScore2048" style="color:white; font-family:sans-serif; font-size:1.2em; margin-bottom:20px;">Score: 0</p>
-                <button onclick="init()" style="background:#38BDF8; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer; font-weight:bold;">Restart Game</button>
+                <h1 style="color:#38BDF8;">OUT OF MOVES</h1>
+                <p id="finalScore2048" style="color:white; font-size:1.2em; margin-bottom:20px;">Score: 0</p>
+                <button onclick="init()" style="background:#38BDF8; color:white; border:none; padding:10px 20px; border-radius:8px; font-weight:bold;">Restart</button>
             </div>
         </div>
         <script>
@@ -376,55 +325,34 @@ with main_nav[2]:
             const gridDisp = document.getElementById('grid');
             let board = Array(16).fill(0), score = 0;
             function init() {{ document.getElementById("over2048").style.display = "none"; board = Array(16).fill(0); score = 0; addTile(); addTile(); render(); }}
-            function addTile() {{
-                let empty = board.map((v, i) => v === 0 ? i : null).filter(v => v !== null);
-                if (empty.length) board[empty[Math.floor(Math.random()*empty.length)]] = Math.random() < 0.9 ? 2 : 4;
-            }}
+            function addTile() {{ let empty = board.map((v, i) => v === 0 ? i : null).filter(v => v !== null); if (empty.length) board[empty[Math.floor(Math.random()*empty.length)]] = Math.random() < 0.9 ? 2 : 4; }}
             function render() {{
                 gridDisp.innerHTML = '';
                 board.forEach(v => {{
-                    const tile = document.createElement('div');
-                    tile.style.width = '60px'; tile.style.height = '60px';
-                    tile.style.background = v ? '#38BDF8' : '#334155';
-                    tile.style.color = 'white'; tile.style.display = 'flex';
-                    tile.style.alignItems = 'center'; tile.style.justifyContent = 'center';
-                    tile.style.borderRadius = '5px'; tile.style.fontWeight = 'bold';
-                    tile.style.fontSize = '20px'; tile.innerText = v || '';
-                    gridDisp.appendChild(tile);
+                    const t = document.createElement('div'); t.style.width='60px'; t.style.height='60px'; t.style.background=v?'#38BDF8':'#334155';
+                    t.style.color='white'; t.style.display='flex'; t.style.alignItems='center'; t.style.justifyContent='center';
+                    t.style.borderRadius='5px'; t.style.fontWeight='bold'; t.innerText=v||''; gridDisp.appendChild(t);
                 }});
-                document.getElementById('sc').innerText = "Score: " + score;
-                checkGameOver();
+                document.getElementById('sc').innerText = "Score: " + score; checkGameOver();
             }}
             function checkGameOver() {{
                 if (board.includes(0)) return;
-                for (let i = 0; i < 4; i++) {{
-                    for (let j = 0; j < 4; j++) {{
-                        let current = board[i * 4 + j];
-                        if (j < 3 && current === board[i * 4 + (j + 1)]) return;
-                        if (i < 3 && current === board[(i + 1) * 4 + j]) return;
-                    }}
+                for (let i=0; i<4; i++) for (let j=0; j<4; j++) {{
+                    let c = board[i*4+j]; if (j<3 && c===board[i*4+j+1]) return; if (i<3 && c===board[(i+1)*4+j]) return;
                 }}
-                playSound(150, 'sawtooth', 0.5);
-                document.getElementById("finalScore2048").innerText = "Final Score: " + score;
-                document.getElementById("over2048").style.display = "flex";
+                document.getElementById("finalScore2048").innerText = "Final Score: " + score; document.getElementById("over2048").style.display = "flex";
             }}
             window.addEventListener('keydown', e => {{
-                if(!["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) return;
-                e.preventDefault(); let old = [...board];
-                if(e.code === "ArrowLeft") move(0, 1, 4); if(e.code === "ArrowRight") move(3, -1, 4);
-                if(e.code === "ArrowUp") move(0, 4, 1); if(e.code === "ArrowDown") move(12, -4, 1);
-                if (JSON.stringify(old) !== JSON.stringify(board)) {{ playSound(523, 'sine', 0.05); addTile(); render(); }}
+                if(!["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) return; e.preventDefault();
+                let old = [...board]; if(e.code==="ArrowLeft") move(0,1,4); if(e.code==="ArrowRight") move(3,-1,4);
+                if(e.code==="ArrowUp") move(0,4,1); if(e.code==="ArrowDown") move(12,-4,1);
+                if (JSON.stringify(old)!==JSON.stringify(board)) {{ playSound(523,'sine',0.05); addTile(); render(); }}
             }});
-            function move(start, step, side) {{
-                for (let i = 0; i < 4; i++) {{
-                    let line = [];
-                    for (let j = 0; j < 4; j++) line.push(board[start + i*side + j*step]);
-                    let filtered = line.filter(v => v);
-                    for (let j = 0; j < filtered.length - 1; j++) {{
-                        if (filtered[j] === filtered[j+1]) {{ filtered[j] *= 2; score += filtered[j]; filtered.splice(j+1, 1); playSound(1046, 'sine', 0.1, 0.05); }}
-                    }}
-                    while (filtered.length < 4) filtered.push(0);
-                    for (let j = 0; j < 4; j++) board[start + i*side + j*step] = filtered[j];
+            function move(s,st,sd) {{
+                for (let i=0; i<4; i++) {{
+                    let l = []; for (let j=0; j<4; j++) l.push(board[s+i*sd+j*st]);
+                    let f = l.filter(v=>v); for (let j=0; j<f.length-1; j++) if (f[j]===f[j+1]) {{ f[j]*=2; score+=f[j]; f.splice(j+1,1); playSound(1046,'sine',0.1); }}
+                    while (f.length<4) f.push(0); for (let j=0; j<4; j++) board[s+i*sd+j*st] = f[j];
                 }}
             }}
             init();
@@ -432,10 +360,26 @@ with main_nav[2]:
         """
         st.components.v1.html(T2048_HTML, height=480)
 
-# --- 8. LOGOUT ---
-with main_nav[3]:
+# --- 8. ADMIN PORTAL ---
+if st.session_state.auth.get("role") == "admin":
+    with main_nav[-2]:
+        st.header("🛡️ Admin Chat Explorer")
+        logs_df = get_data("ChatLogs")
+        if not logs_df.empty:
+            c1, c2, c3 = st.columns(3)
+            with c1: u_f = st.multiselect("Couple ID", options=logs_df['CoupleID'].unique())
+            with c2: a_f = st.multiselect("Agent", options=logs_df['Agent'].unique())
+            with c3: r_f = st.multiselect("Role", options=logs_df['Role'].unique())
+            f_df = logs_df.copy()
+            if u_f: f_df = f_df[f_df['CoupleID'].isin(u_f)]
+            if a_f: f_df = f_df[f_df['Agent'].isin(a_f)]
+            if r_f: f_df = f_df[f_df['Role'].isin(r_f)]
+            st.dataframe(f_df[['Timestamp', 'CoupleID', 'Agent', 'Role', 'Content']], use_container_width=True, hide_index=True)
+            st.download_button("📥 Export CSV", f_df.to_csv(index=False), "logs.csv", "text/csv")
+        else: st.info("No logs found.")
+
+# --- 9. LOGOUT ---
+with main_nav[-1]:
     if st.button("Confirm Logout"):
         st.session_state.auth = {"logged_in": False}
         st.rerun()
-
-
