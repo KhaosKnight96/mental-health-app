@@ -48,7 +48,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
 if "auth" not in st.session_state:
-    st.session_state.auth = {"logged_in": False, "cid": None, "name": None, "role": "user"}
+    st.session_state.auth = {"logged_in": False, "mid": None, "name": None, "role": "user"}
 if "cooper_logs" not in st.session_state: st.session_state.cooper_logs = []
 if "clara_logs" not in st.session_state: st.session_state.clara_logs = []
 
@@ -59,13 +59,13 @@ def get_data(worksheet_name):
         return df
     except:
         if worksheet_name == "ChatLogs":
-            return pd.DataFrame(columns=["Timestamp", "CoupleID", "Agent", "Role", "Content"])
+            return pd.DataFrame(columns=["Timestamp", "MemberId", "Agent", "Role", "Content"])
         return pd.DataFrame()
 
 def save_chat_to_sheets(agent, role, content):
     new_entry = pd.DataFrame([{
         "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "CoupleID": st.session_state.auth['cid'],
+        "MemberId": st.session_state.auth['mid'],
         "Agent": agent,
         "Role": role,
         "Content": content
@@ -79,7 +79,7 @@ if not st.session_state.auth["logged_in"]:
     st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge Portal</h1>", unsafe_allow_html=True)
     t1, t2 = st.tabs(["🔐 Login", "📝 Sign Up"])
     with t1:
-        u = st.text_input("Couple ID", key="l_u")
+        u = st.text_input("Member ID", key="l_u")
         p = st.text_input("Password", type="password", key="l_p")
         if st.button("Sign In"):
             df = get_data("Users")
@@ -88,14 +88,14 @@ if not st.session_state.auth["logged_in"]:
                 user_role = m.iloc[0]['Role'] if 'Role' in m.columns else 'user'
                 st.session_state.auth.update({
                     "logged_in": True, 
-                    "cid": u, 
+                    "mid": u, 
                     "name": m.iloc[0]['Fullname'],
                     "role": str(user_role).lower()
                 })
                 # Load History
                 all_chats = get_data("ChatLogs")
                 if not all_chats.empty:
-                    user_chats = all_chats[all_chats['CoupleID'].astype(str) == str(u)]
+                    user_chats = all_chats[all_chats['MemberId'].astype(str) == str(u)]
                     cooper_data = user_chats[user_chats['Agent'] == "Cooper"]
                     st.session_state.cooper_logs = [{"role": row["Role"], "content": row["Content"]} for _, row in cooper_data.iterrows()]
                     clara_data = user_chats[user_chats['Agent'] == "Clara"]
@@ -104,7 +104,7 @@ if not st.session_state.auth["logged_in"]:
             else: st.error("Invalid Credentials")
     with t2:
         n = st.text_input("Full Name")
-        c = st.text_input("Couple ID")
+        c = st.text_input("Member ID")
         pw = st.text_input("Password", type="password")
         if st.button("Register"):
             df = get_data("Users")
@@ -130,7 +130,7 @@ with main_nav[0]:
         emoji_map = {1:'🚨', 2:'🪫', 3:'😫', 4:'🥱', 5:'🙁', 6:'😐', 7:'🙂', 8:'😊', 9:'⚡', 10:'🚀', 11:'☀️'}
         st.markdown(f"<h1 style='text-align:center; font-size:80px;'>{emoji_map[ev]}</h1>", unsafe_allow_html=True)
         if st.button("💾 Sync Data"):
-            new_row = pd.DataFrame([{"Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), "CoupleID": st.session_state.auth['cid'], "EnergyLog": ev}])
+            new_row = pd.DataFrame([{"Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), "MemberId": st.session_state.auth['mid'], "EnergyLog": ev}])
             conn.update(worksheet="Sheet1", data=pd.concat([get_data("Sheet1"), new_row], ignore_index=True))
             st.success("Logged!")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -156,7 +156,7 @@ with main_nav[1]:
     with c1:
         try:
             df_l = get_data("Sheet1")
-            df_p = df_l[df_l['CoupleID'].astype(str) == str(st.session_state.auth['cid'])].copy()
+            df_p = df_l[df_l['MemberId'].astype(str) == str(st.session_state.auth['mid'])].copy()
             df_p['Timestamp'] = pd.to_datetime(df_p['Timestamp'])
             df_p = df_p.sort_values('Timestamp')
             if not df_p.empty:
@@ -211,6 +211,7 @@ with main_nav[2]:
             </div>
         </div>
         <script>
+        {{
         {JS_SOUNDS}
         const canvas=document.getElementById("s"), ctx=canvas.getContext("2d"), box=15;
         let score=0, d, game, snake, food;
@@ -245,6 +246,7 @@ with main_nav[2]:
             if(d) snake.unshift(h);
         }}
         resetSnake();
+        }}
         </script>
         """
         st.components.v1.html(SNAKE_HTML, height=480)
@@ -263,11 +265,12 @@ with main_nav[2]:
             </div>
         </div>
         <script>
+            {{
             {JS_SOUNDS}
             const allIcons = ['🍎','💎','🌟','🚀','🌈','🔥','🍀','🎁','🦄','🐲','🍕','🎸','🪐','⚽','🍦','🍭','🎲','⚡'];
             let currentLevel = 1, flipped = [], lock = false, matches = 0, totalPairs = 8;
-            function nextLevel() {{ if (currentLevel < 3) {{ currentLevel++; loadLevel(currentLevel); }} else {{ currentLevel = 1; loadLevel(1); }} }}
-            function loadLevel(level) {{
+            window.nextLevel = function() {{ if (currentLevel < 3) {{ currentLevel++; loadLevel(currentLevel); }} else {{ currentLevel = 1; loadLevel(1); }} }};
+            window.loadLevel = function(level) {{
                 document.getElementById("overMem").style.display = "none";
                 const board = document.getElementById('g'); board.innerHTML = ''; matches = 0; flipped = [];
                 totalPairs = level === 1 ? 8 : (level === 2 ? 12 : 18);
@@ -297,7 +300,7 @@ with main_nav[2]:
                         }}
                     }}; board.appendChild(card);
                 }});
-            }}
+            }};
             function showWinOverlay() {{
                 const overlay = document.getElementById("overMem");
                 document.getElementById("memTitle").innerText = currentLevel < 3 ? "LEVEL CLEAR!" : "GRANDMASTER!";
@@ -305,6 +308,7 @@ with main_nav[2]:
                 overlay.style.display = "flex";
             }}
             loadLevel(1);
+            }}
         </script>
         """
         st.components.v1.html(MEMORY_HTML, height=580)
@@ -321,10 +325,11 @@ with main_nav[2]:
             </div>
         </div>
         <script>
+            {{
             {JS_SOUNDS}
             const gridDisp = document.getElementById('grid');
             let board = Array(16).fill(0), score = 0;
-            function init() {{ document.getElementById("over2048").style.display = "none"; board = Array(16).fill(0); score = 0; addTile(); addTile(); render(); }}
+            window.init = function() {{ document.getElementById("over2048").style.display = "none"; board = Array(16).fill(0); score = 0; addTile(); addTile(); render(); }};
             function addTile() {{ let empty = board.map((v, i) => v === 0 ? i : null).filter(v => v !== null); if (empty.length) board[empty[Math.floor(Math.random()*empty.length)]] = Math.random() < 0.9 ? 2 : 4; }}
             function render() {{
                 gridDisp.innerHTML = '';
@@ -356,6 +361,7 @@ with main_nav[2]:
                 }}
             }}
             init();
+            }}
         </script>
         """
         st.components.v1.html(T2048_HTML, height=480)
@@ -367,14 +373,14 @@ if st.session_state.auth.get("role") == "admin":
         logs_df = get_data("ChatLogs")
         if not logs_df.empty:
             c1, c2, c3 = st.columns(3)
-            with c1: u_f = st.multiselect("Couple ID", options=logs_df['CoupleID'].unique())
+            with c1: u_f = st.multiselect("Member ID", options=logs_df['MemberId'].unique())
             with c2: a_f = st.multiselect("Agent", options=logs_df['Agent'].unique())
             with c3: r_f = st.multiselect("Role", options=logs_df['Role'].unique())
             f_df = logs_df.copy()
-            if u_f: f_df = f_df[f_df['CoupleID'].isin(u_f)]
+            if u_f: f_df = f_df[f_df['MemberId'].isin(u_f)]
             if a_f: f_df = f_df[f_df['Agent'].isin(a_f)]
             if r_f: f_df = f_df[f_df['Role'].isin(r_f)]
-            st.dataframe(f_df[['Timestamp', 'CoupleID', 'Agent', 'Role', 'Content']], use_container_width=True, hide_index=True)
+            st.dataframe(f_df[['Timestamp', 'MemberId', 'Agent', 'Role', 'Content']], use_container_width=True, hide_index=True)
             st.download_button("📥 Export CSV", f_df.to_csv(index=False), "logs.csv", "text/csv")
         else: st.info("No logs found.")
 
