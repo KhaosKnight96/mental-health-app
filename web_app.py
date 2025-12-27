@@ -29,9 +29,8 @@ st.markdown("""
 if "auth" not in st.session_state:
     st.session_state.auth = {"logged_in": False, "cid": None, "name": None, "role": None}
 if "chat_log" not in st.session_state: st.session_state.chat_log = []
-if "clara_history" not in st.session_state: st.session_state.clara_history = []
-if "current_page" not in st.session_state: st.session_state.current_page = None
-if "memory_win" not in st.session_state: st.session_state.memory_win = False
+if "current_page" not in st.session_state: st.session_state.current_page = "Dashboard"
+if "snake_high_score" not in st.session_state: st.session_state.snake_high_score = 0
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -67,7 +66,6 @@ cid, cname, role = st.session_state.auth["cid"], st.session_state.auth["name"], 
 # --- 3. NAVIGATION LOGIC ---
 def reset_to_home():
     st.session_state.current_page = "Dashboard" if role == "patient" else "Analytics"
-    st.session_state.memory_win = False
     if "game_selector" in st.session_state:
         st.session_state.game_selector = "Select a Game"
 
@@ -99,11 +97,11 @@ mode = st.session_state.current_page
 # --- 4. PAGE CONTENT ---
 
 if mode in ["Dashboard", "Analytics"]:
-    # ... (Dashboard/Analytics code same as previous) ...
     if role == "patient":
         st.markdown(f'<div style="background: linear-gradient(90deg, #219EBC, #023047); padding: 25px; border-radius: 20px;"><h1>Hi {cname}! ☀️</h1></div>', unsafe_allow_html=True)
         col1, col2 = st.columns([1, 2])
         with col1:
+            st.markdown(f'<div class="portal-card"><h3>🏆 Snake Record: {st.session_state.snake_high_score}</h3></div>', unsafe_allow_html=True)
             st.markdown('<div class="portal-card"><h3>✨ Energy Log</h3>', unsafe_allow_html=True)
             options = ["Resting", "Low", "Steady", "Good", "Active", "Vibrant", "Radiant"]
             val_map = {"Resting":1, "Low":3, "Steady":5, "Good":7, "Active":9, "Vibrant":10, "Radiant":11}
@@ -136,8 +134,7 @@ if mode in ["Dashboard", "Analytics"]:
 
 elif mode == "Memory Match":
     st.title("🧩 3D Memory Match")
-    # Python-side balloons trigger
-    if st.button("Refresh Game Board"): st.rerun()
+    st.write("Match all icons for a celebration!")
     
     memory_html = """
     <div id="game-ui" style="display:flex; justify-content:center; flex-wrap:wrap; gap:12px; perspective: 1000px; padding: 20px;"></div>
@@ -153,11 +150,10 @@ elif mode == "Memory Match":
     }
     
     function winCelebration() {
-        // Victory Chime Sequence
-        playTone(523.25, 'sine', 0.2, 0.1); // C5
-        setTimeout(() => playTone(659.25, 'sine', 0.2, 0.1), 150); // E5
-        setTimeout(() => playTone(783.99, 'sine', 0.2, 0.1), 300); // G5
-        setTimeout(() => playTone(1046.50, 'sine', 0.5, 0.1), 450); // C6
+        playTone(523.25, 'sine', 0.2, 0.1);
+        setTimeout(() => playTone(659.25, 'sine', 0.2, 0.1), 150);
+        setTimeout(() => playTone(783.99, 'sine', 0.2, 0.1), 300);
+        setTimeout(() => playTone(1046.50, 'sine', 0.5, 0.1), 450);
         setTimeout(() => { alert("🎉 Magnificent! You matched them all!"); }, 600);
     }
 
@@ -184,14 +180,12 @@ elif mode == "Memory Match":
                     setTimeout(() => playTone(800, 'triangle', 0.2), 300);
                     matched.push(flipped[0].i, flipped[1].i);
                     flipped = []; canFlip = true;
-                    if (matched.length === icons.length) {
-                        setTimeout(winCelebration, 500);
-                    }
+                    if (matched.length === icons.length) setTimeout(winCelebration, 500);
                 } else {
                     setTimeout(() => {
                         playTone(200, 'sine', 0.1);
                         document.getElementById(`card-${flipped[0].i}`).style.transform = "rotateY(0deg)";
-                        document.getElementById(`card(`flipped[1].i}`).style.transform = "rotateY(0deg)";
+                        document.getElementById(`card-${flipped[1].i}`).style.transform = "rotateY(0deg)";
                         flipped = []; canFlip = true;
                     }, 1000);
                 }
@@ -205,7 +199,11 @@ elif mode == "Memory Match":
 
 elif mode == "Snake":
     st.title("🐍 Zen Snake")
-    # ... (Snake JS same as previous version) ...
+    # Streamlit hack to catch scores from JS
+    score_val = st.number_input("Hidden Score", key="hidden_score", label_visibility="collapsed", step=1)
+    if score_val > st.session_state.snake_high_score:
+        st.session_state.snake_high_score = score_val
+
     snake_html = """
     <div id="game-container" style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:24px; touch-action: none; position: relative;">
         <canvas id="snakeGame" width="400" height="400" style="border:4px solid #38BDF8; border-radius:12px; background:#0F172A; max-width: 100%;"></canvas>
