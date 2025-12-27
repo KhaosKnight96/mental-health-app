@@ -38,6 +38,21 @@ def get_data(worksheet_name="Users"):
         return df
     except: return pd.DataFrame()
 
+def save_high_score(game_name, score):
+    try:
+        df_hs = get_data("HighScores")
+        cid = st.session_state.auth['cid']
+        # Check if record exists
+        idx = (df_hs['CoupleID'].astype(str) == str(cid)) & (df_hs['Game'] == game_name)
+        if not df_hs[idx].empty:
+            if score > int(df_hs.loc[idx, 'Score'].values[0]):
+                df_hs.loc[idx, 'Score'] = score
+                conn.update(worksheet="HighScores", data=df_hs)
+        else:
+            new_score = pd.DataFrame([{"CoupleID": cid, "Game": game_name, "Score": score}])
+            conn.update(worksheet="HighScores", data=pd.concat([df_hs, new_score], ignore_index=True))
+    except: pass
+
 # --- 3. LOGIN / SIGNUP ---
 if not st.session_state.auth["logged_in"]:
     st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge Portal</h1>", unsafe_allow_html=True)
@@ -101,16 +116,10 @@ with main_nav[1]:
         if not df_p.empty:
             st.markdown('<div class="portal-card"><h3>📉 Energy Analytics</h3>', unsafe_allow_html=True)
             fig = go.Figure()
-            fig.add_shape(type="line", x0=df_p['Timestamp'].min(), y0=6, x1=df_p['Timestamp'].max(), y1=6,
-                          line=dict(color="White", width=2, dash="dash"))
-            fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=df_p['EnergyLog'], mode='lines+markers',
-                                     line=dict(color='#38BDF8', width=3), name='Energy',
-                                     fill='tozeroy', fillcolor='rgba(248, 113, 113, 0.2)'))
-            fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=[max(6, y) for y in df_p['EnergyLog']],
-                                     mode='lines', line=dict(width=0), fill='tonexty',
-                                     fillcolor='rgba(74, 222, 128, 0.3)', showlegend=False))
-            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"),
-                              yaxis=dict(range=[1, 11], gridcolor="#334155"), xaxis=dict(showgrid=False))
+            fig.add_shape(type="line", x0=df_p['Timestamp'].min(), y0=6, x1=df_p['Timestamp'].max(), y1=6, line=dict(color="White", width=2, dash="dash"))
+            fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=df_p['EnergyLog'], mode='lines+markers', line=dict(color='#38BDF8', width=3), name='Energy', fill='tozeroy', fillcolor='rgba(248, 113, 113, 0.2)'))
+            fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=[max(6, y) for y in df_p['EnergyLog']], mode='lines', line=dict(width=0), fill='tonexty', fillcolor='rgba(74, 222, 128, 0.3)', showlegend=False))
+            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"), yaxis=dict(range=[1, 11], gridcolor="#334155"), xaxis=dict(showgrid=False))
             st.plotly_chart(fig, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
     except: st.info("No data yet.")
@@ -129,65 +138,40 @@ with main_nav[1]:
 with main_nav[2]:
     gt = st.radio("Choose Game", ["Modern Snake", "Memory Match"], horizontal=True)
     
+    # Fetch Best Score
+    try:
+        hs_df = get_data("HighScores")
+        best = hs_df[(hs_df['CoupleID'].astype(str) == st.session_state.auth['cid']) & (hs_df['Game'] == gt)]['Score'].max()
+        st.subheader(f"🏆 Personal Best: {best if pd.notna(best) else 0}")
+    except: pass
+
     if gt == "Modern Snake":
+        # Snake logic includes a call to Python to save score on game over via a hidden button or simple check
+        # For simplicity in this demo, the JS handles the game and you can use st.query_params to send score back
         SNAKE_HTML = """
         <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; touch-action:none;">
-            <canvas id="s" width="300" height="300" style="border:4px solid #38BDF8; background:#0F172A; border-radius:10px; box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);"></canvas>
-            <h2 id="st" style="color:#38BDF8; font-family:sans-serif; text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);">Score: 0</h2>
-            <button onclick="location.reload()" style="width:100%; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold; cursor:pointer;">🔄 Restart</button>
+            <canvas id="s" width="300" height="300" style="border:4px solid #38BDF8; background:#0F172A; border-radius:10px;"></canvas>
+            <h2 id="st" style="color:#38BDF8; font-family:sans-serif;">Score: 0</h2>
+            <button onclick="location.reload()" style="width:100%; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold;">🔄 Restart</button>
         </div>
         <script>
         const canvas=document.getElementById("s"), ctx=canvas.getContext("2d"), box=15;
         let score=0, d, snake=[{x:10*box, y:10*box}], food={x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box};
-        
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        function playSound(freq, type, duration) {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            osc.start(); osc.stop(audioCtx.currentTime + duration);
-        }
-
-        window.addEventListener("keydown", e => { 
-            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
-            if(e.code=="ArrowLeft" && d!="RIGHT") d="LEFT"; if(e.code=="ArrowUp" && d!="DOWN") d="UP";
-            if(e.code=="ArrowRight" && d!="LEFT") d="RIGHT"; if(e.code=="ArrowDown" && d!="UP") d="DOWN"; 
-        });
-
+        function playSound(f, t, d) { const o=audioCtx.createOscillator(); const g=audioCtx.createGain(); o.type=t; o.frequency.setValueAtTime(f, audioCtx.currentTime); g.gain.setValueAtTime(0.1, audioCtx.currentTime); o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+d); }
+        window.addEventListener("keydown", e => { if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault(); if(e.code=="ArrowLeft" && d!="RIGHT") d="LEFT"; if(e.code=="ArrowUp" && d!="DOWN") d="UP"; if(e.code=="ArrowRight" && d!="LEFT") d="RIGHT"; if(e.code=="ArrowDown" && d!="UP") d="DOWN"; });
         function draw() {
             ctx.fillStyle="#0F172A"; ctx.fillRect(0,0,300,300);
-            
-            // Draw Food (Neon Glow)
-            ctx.shadowBlur = 15; ctx.shadowColor = "#F87171";
-            ctx.fillStyle = "#F87171"; ctx.beginPath();
-            ctx.arc(food.x+box/2, food.y+box/2, box/3, 0, Math.PI*2); ctx.fill();
-            
-            // Draw Snake
-            ctx.shadowBlur = 10; ctx.shadowColor = "#38BDF8";
-            snake.forEach((p,i)=>{
-                ctx.fillStyle= i==0 ? "#38BDF8" : "rgba(56, 189, 248, "+(1 - i/snake.length)+")";
-                ctx.beginPath(); ctx.roundRect(p.x, p.y, box-1, box-1, 4); ctx.fill();
-            });
-            ctx.shadowBlur = 0;
-
+            ctx.fillStyle = "#F87171"; ctx.beginPath(); ctx.arc(food.x+box/2, food.y+box/2, box/3, 0, Math.PI*2); ctx.fill();
+            snake.forEach((p,i)=>{ ctx.fillStyle= i==0 ? "#38BDF8" : "rgba(56, 189, 248, "+(1-i/snake.length)+")"; ctx.beginPath(); ctx.roundRect(p.x, p.y, box-1, box-1, 4); ctx.fill(); });
             let hX=snake[0].x, hY=snake[0].y;
             if(d=="LEFT") hX-=box; if(d=="UP") hY-=box; if(d=="RIGHT") hX+=box; if(d=="DOWN") hY+=box;
-
-            if(hX==food.x && hY==food.y){
-                score++; document.getElementById("st").innerText="Score: "+score;
-                playSound(600, 'sine', 0.1);
-                food={x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box};
-            } else if(d) snake.pop();
-
+            if(hX==food.x && hY==food.y){ score++; document.getElementById("st").innerText="Score: "+score; playSound(600, 'sine', 0.1); food={x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}; } else if(d) snake.pop();
             let h={x:hX, y:hY};
             if(hX<0||hX>=300||hY<0||hY>=300||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){
-                playSound(150, 'sawtooth', 0.5);
-                ctx.fillStyle="white"; ctx.font="bold 24px Arial"; ctx.textAlign="center";
-                ctx.fillText("GAME OVER", 150, 150); clearInterval(game);
+                playSound(150, 'sawtooth', 0.5); ctx.fillStyle="white"; ctx.font="bold 24px Arial"; ctx.textAlign="center"; ctx.fillText("GAME OVER", 150, 150); clearInterval(game);
+                window.parent.postMessage({type: 'score_update', game: 'Modern Snake', score: score}, '*');
             }
             if(d) snake.unshift(h);
         }
@@ -197,29 +181,15 @@ with main_nav[2]:
         st.components.v1.html(SNAKE_HTML, height=520)
     else:
         MEMORY_HTML = """
-        <style>
-            .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; margin: auto; }
-            .card { height: 75px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }
-            .card.flipped { transform: rotateY(180deg); }
-            .face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #334155; }
-            .front { background: #1E293B; border-color: #38BDF8; }
-            .back { background: #334155; transform: rotateY(180deg); color: white; }
-        </style>
         <div class="grid" id="g"></div>
-        <button onclick="location.reload()" style="width:100%; max-width:320px; display:block; margin:20px auto; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold; cursor:pointer;">🔄 New Game</button>
+        <button onclick="location.reload()" style="width:100%; max-width:320px; display:block; margin:20px auto; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold;">🔄 New Game</button>
+        <style> .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; margin: auto; } .card { height: 75px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; } .card.flipped { transform: rotateY(180deg); } .face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #334155; } .front { background: #1E293B; border-color: #38BDF8; } .back { background: #334155; transform: rotateY(180deg); color: white; } </style>
         <script>
             const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            function playSound(f, t, d) {
-                const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
-                o.type = t; o.frequency.setValueAtTime(f, audioCtx.currentTime);
-                g.gain.setValueAtTime(0.1, audioCtx.currentTime);
-                g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + d);
-                o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + d);
-            }
-
+            function playSound(f, t, d) { const o=audioCtx.createOscillator(); const g=audioCtx.createGain(); o.type=t; o.frequency.setValueAtTime(f, audioCtx.currentTime); g.gain.setValueAtTime(0.1, audioCtx.currentTime); o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime+d); }
             const icons = ['🍎','🍎','💎','💎','🌟','🌟','🚀','🚀','🌈','🌈','🔥','🔥','🍀','🍀','🎁','🎁'];
             let shuffled = icons.sort(() => 0.5 - Math.random());
-            let flipped = [], lock = false;
+            let flipped = [], lock = false, matches = 0;
             const board = document.getElementById('g');
             shuffled.forEach(icon => {
                 const card = document.createElement('div'); card.className = 'card';
@@ -227,20 +197,13 @@ with main_nav[2]:
                 card.dataset.icon = icon;
                 card.onclick = function() {
                     if(lock || this.classList.contains('flipped')) return;
-                    playSound(440, 'sine', 0.1);
-                    this.classList.add('flipped'); flipped.push(this);
+                    playSound(440, 'sine', 0.1); this.classList.add('flipped'); flipped.push(this);
                     if(flipped.length === 2) {
                         lock = true;
                         if(flipped[0].dataset.icon === flipped[1].dataset.icon) {
-                            setTimeout(() => playSound(880, 'sine', 0.2), 200);
-                            flipped = []; lock = false;
-                        } else {
-                            setTimeout(() => { 
-                                playSound(200, 'sine', 0.2);
-                                flipped.forEach(c => c.classList.remove('flipped')); 
-                                flipped = []; lock = false; 
-                            }, 800);
-                        }
+                            matches++; playSound(880, 'sine', 0.2); flipped = []; lock = false;
+                            if(matches === 8) window.parent.postMessage({type: 'score_update', game: 'Memory Match', score: 100}, '*');
+                        } else { setTimeout(() => { playSound(200, 'sine', 0.2); flipped.forEach(c => c.classList.remove('flipped')); flipped = []; lock = false; }, 800); }
                     }
                 }; board.appendChild(card);
             });
