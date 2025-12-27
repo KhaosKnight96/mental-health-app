@@ -4,7 +4,7 @@ import datetime
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 
-# --- 1. SETTINGS & APP-WIDE STYLING ---
+# --- 1. SETTINGS & STYLING ---
 st.set_page_config(page_title="Health Bridge Portal", layout="wide")
 
 st.markdown("""
@@ -17,7 +17,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CONNECTIONS & UTILITIES ---
+# --- 2. CONNECTIONS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
@@ -27,8 +27,9 @@ if "chat_log" not in st.session_state: st.session_state.chat_log = []
 if "current_page" not in st.session_state: st.session_state.current_page = "Dashboard"
 
 def get_clean_users():
-    """Fetches user data and standardizes headers to prevent KeyErrors."""
+    """Fetches real-time data and sanitizes column names."""
     try:
+        # ttl=0 is vital: it tells Streamlit NOT to cache the read
         df = conn.read(worksheet="Users", ttl=0)
         df.columns = [str(c).lower().replace(" ", "").strip() for c in df.columns]
         mapping = {'username': 'Username', 'password': 'Password', 'fullname': 'Fullname', 'highscore': 'HighScore'}
@@ -37,29 +38,37 @@ def get_clean_users():
     except:
         return pd.DataFrame()
 
-# --- 3. HIGH SCORE SYNC ENGINE ---
+# --- 3. PERSISTENT HIGH SCORE SYNC (THE FIX) ---
 qp = st.query_params
 if "last_score" in qp and st.session_state.auth.get("logged_in"):
     try:
         new_s = int(qp["last_score"])
         udf = get_clean_users()
         if not udf.empty:
-            user_mask = udf['Username'].astype(str) == str(st.session_state.auth['cid'])
+            cid_str = str(st.session_state.auth['cid'])
+            user_mask = udf['Username'].astype(str) == cid_str
+            
             if any(user_mask):
                 idx = udf.index[user_mask][0]
                 current_high = pd.to_numeric(udf.at[idx, 'HighScore'], errors='coerce') or 0
+                
                 if new_s > current_high:
                     udf.at[idx, 'HighScore'] = new_s
+                    # Force update the worksheet
                     conn.update(worksheet="Users", data=udf)
-                    st.toast(f"🏆 NEW PERSONAL BEST: {new_s}!", icon="🔥")
+                    # IMMEDIATELY clear the cache so the next read sees the new score
                     st.cache_data.clear()
+                    st.toast(f"🏆 NEW RECORD SAVED: {new_s}!", icon="🔥")
                 else:
-                    st.toast(f"Game Over! Score: {new_s}", icon="🎮")
-    except: pass
+                    st.toast(f"Score: {new_s} (Best: {current_high})", icon="🎮")
+    except Exception as e:
+        st.error(f"Sync error: {e}")
+    
+    # Clean URL and refresh UI
     st.query_params.clear()
     st.rerun()
 
-# --- 4. AUTHENTICATION GATES ---
+# --- 4. LOGIN SYSTEM ---
 if not st.session_state.auth["logged_in"]:
     _, col, _ = st.columns([1, 1.2, 1])
     with col:
@@ -74,7 +83,6 @@ if not st.session_state.auth["logged_in"]:
                     st.session_state.auth.update({"logged_in": True, "cid": u_l, "name": m.iloc[0]['Fullname']})
                     st.rerun()
                 else: st.error("Invalid credentials.")
-            else: st.error("Database connection error.")
     st.stop()
 
 if st.session_state.auth["role"] is None:
@@ -89,56 +97,50 @@ if st.session_state.auth["role"] is None:
 
 cid, cname, role = st.session_state.auth["cid"], st.session_state.auth["name"], st.session_state.auth["role"]
 
-# --- 5. SIDEBAR NAVIGATION ---
+# --- 5. NAVIGATION ---
 with st.sidebar:
     st.title("🌉 Health Bridge")
     main_nav = "Dashboard" if role == "patient" else "Analytics"
     side_opt = st.radio("Navigation", [main_nav])
     with st.expander("🧩 Zen Zone"):
         game_choice = st.selectbox("Select Break", ["Select a Game", "Memory Match", "Snake"])
-    
     st.session_state.current_page = game_choice if game_choice != "Select a Game" else side_opt
-    st.divider()
     if st.button("🚪 Logout"):
         for k in list(st.session_state.keys()): del st.session_state[k]
         st.rerun()
 
 # --- 6. PAGE CONTENT ---
-
 if st.session_state.current_page == "Dashboard":
     st.markdown(f'<div style="background: linear-gradient(90deg, #219EBC, #023047); padding: 25px; border-radius: 20px;"><h1>Hi {cname}! ☀️</h1></div>', unsafe_allow_html=True)
     col1, col2 = st.columns([1, 2])
-    
     with col1:
         udf = get_clean_users()
         pb = 0
         if not udf.empty and 'HighScore' in udf.columns:
             row = udf[udf['Username'].astype(str) == str(cid)]
             if not row.empty: pb = pd.to_numeric(row['HighScore'].values[0], errors='coerce') or 0
-        st.markdown(f'<div class="portal-card"><h3 style="color:#FFD700;">🏆 Snake Record: {pb}</h3></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="portal-card"><h3 style="color:#FFD700;">🏆 Snake Record: {int(pb)}</h3></div>', unsafe_allow_html=True)
         
+        # Energy Log
         st.markdown('<div class="portal-card"><h3>✨ Energy Log</h3>', unsafe_allow_html=True)
-        vibe_opts = ["Resting", "Low", "Steady", "Good", "Active", "Vibrant", "Radiant"]
-        vibe = st.select_slider("Vibe:", options=vibe_opts, value="Steady")
+        vibe = st.select_slider("Vibe:", options=["Resting", "Low", "Steady", "Good", "Active", "Vibrant", "Radiant"], value="Steady")
         if st.button("Log Energy", use_container_width=True):
             df = conn.read(worksheet="Sheet1", ttl=0)
             val_map = {"Resting":1, "Low":3, "Steady":5, "Good":7, "Active":9, "Vibrant":10, "Radiant":11}
             new_row = pd.DataFrame([{"Date": datetime.date.today().strftime("%Y-%m-%d"), "Energy": val_map[vibe], "CoupleID": cid}])
-            conn.update(worksheet="Sheet1", data=pd.concat([df, new_row], ignore_index=True))
+            conn.update(worksheet="Sheet1", data=pd.concat([df, new_row]))
             st.balloons()
         st.markdown('</div>', unsafe_allow_html=True)
-
     with col2:
         st.markdown('<div class="portal-card"><h3>🤖 Cooper AI</h3>', unsafe_allow_html=True)
-        chat_box = st.container(height=380)
+        chat_box = st.container(height=350)
         with chat_box:
             for m in st.session_state.chat_log:
                 with st.chat_message("user" if m["type"]=="P" else "assistant"): st.write(m["msg"])
         p_in = st.chat_input("Tell Cooper...")
         if p_in:
             st.session_state.chat_log.append({"type":"P", "msg":p_in})
-            msgs = [{"role":"system","content":f"You are Cooper, a companion for {cname}."}] + \
-                   [{"role":"user" if m["type"]=="P" else "assistant", "content":m["msg"]} for m in st.session_state.chat_log[-5:]]
+            msgs = [{"role":"system","content":f"You are Cooper, companion for {cname}."}] + [{"role":"user" if m["type"]=="P" else "assistant", "content":m["msg"]} for m in st.session_state.chat_log[-5:]]
             res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs).choices[0].message.content
             st.session_state.chat_log.append({"type":"C", "msg":res}); st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -147,11 +149,7 @@ elif st.session_state.current_page == "Analytics":
     st.title("👩‍⚕️ Caregiver Command")
     data = conn.read(worksheet="Sheet1", ttl=0)
     f_data = data[data['CoupleID'].astype(str) == str(cid)]
-    if not f_data.empty:
-        st.markdown('<div class="portal-card"><h3>📈 Patient Energy Trends</h3>', unsafe_allow_html=True)
-        st.line_chart(f_data.set_index("Date")['Energy'])
-        st.markdown('</div>', unsafe_allow_html=True)
-    else: st.info("No energy logs found for this Couple ID.")
+    if not f_data.empty: st.line_chart(f_data.set_index("Date")['Energy'])
 
 elif st.session_state.current_page == "Memory Match":
     st.title("🧩 3D Memory Match")
@@ -159,22 +157,21 @@ elif st.session_state.current_page == "Memory Match":
     <div id="game-container" style="position: relative; width: 100%; display: flex; flex-direction: column; align-items: center; background: #1E293B; border-radius: 20px; padding: 20px;">
         <div id="game-ui" style="display:flex; justify-content:center; flex-wrap:wrap; gap:10px; perspective: 1000px; max-width: 450px;"></div>
         <div id="win-overlay" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.95); border-radius:20px; flex-direction:column; justify-content:center; align-items:center; z-index:100; text-align:center;">
-            <h1 style="color:#FFD700; font-family: sans-serif; font-size:42px;">Magnificent!</h1>
-            <p style="color:white; font-family: sans-serif; font-size:20px;">You matched them all! 🎉</p>
-            <button onclick="window.location.reload()" style="padding:15px 40px; background:#219EBC; color:white; border:none; border-radius:12px; cursor:pointer; font-weight:bold; font-size:18px;">Play Again</button>
+            <h1 style="color:#FFD700; font-family: sans-serif;">Magnificent!</h1>
+            <p style="color:white; font-family: sans-serif;">You matched them all! 🎉</p>
+            <button onclick="window.location.reload()" style="padding:12px 30px; background:#219EBC; color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold;">Play Again</button>
         </div>
     </div>
     <script>
     const icons = ["🌟","🌟","🍀","🍀","🎈","🎈","💎","💎","🌈","🌈","🦄","🦄","🍎","🍎","🎨","🎨"];
     let flipped = [], matched = [], canFlip = true;
     let shuffled = icons.sort(() => Math.random() - 0.5);
-    const ui = document.getElementById('game-ui');
     shuffled.forEach((icon, i) => {
         const card = document.createElement('div');
-        card.style = "width: 75px; height: 100px; cursor: pointer;";
+        card.style = "width: 70px; height: 95px; cursor: pointer;";
         card.innerHTML = `<div style="width:100%; height:100%; transition: transform 0.6s; transform-style: preserve-3d; position: relative;" id="card-${i}">
-            <div style="position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 24px; border-radius: 12px; background: #219EBC; color: white; border: 2px solid white;">?</div>
-            <div style="position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 30px; border-radius: 12px; background: white; transform: rotateY(180deg); border: 2px solid #219EBC;">${icon}</div>
+            <div style="position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 20px; border-radius: 8px; background: #219EBC; color: white; border: 2px solid white;">?</div>
+            <div style="position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 24px; border-radius: 8px; background: white; transform: rotateY(180deg); border: 2px solid #219EBC;">${icon}</div>
         </div>`;
         card.onclick = () => {
             if (!canFlip || matched.includes(i) || (flipped.length > 0 && flipped[0].i === i)) return;
@@ -194,7 +191,7 @@ elif st.session_state.current_page == "Memory Match":
                 }
             }
         };
-        ui.appendChild(card);
+        document.getElementById('game-ui').appendChild(card);
     });
     </script>
     """
