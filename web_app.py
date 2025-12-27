@@ -12,6 +12,9 @@ st.markdown("""
     [data-testid="stSidebar"] { background-color: #1E293B; border-right: 1px solid #334155; }
     .portal-card { background: #1E293B; padding: 20px; border-radius: 15px; border: 1px solid #334155; margin-bottom: 15px; }
     .stButton>button { border-radius: 10px; font-weight: 600; height: 3em; width: 100%; }
+    /* Hide Streamlit UI elements for app feel */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -51,23 +54,23 @@ with st.sidebar:
         st.session_state.auth = {"logged_in": False, "cid": None}
         st.rerun()
 
-# --- 5. DASHBOARD (COOPER) ---
+# --- 5. DASHBOARD (COOPER - THE FRIEND) ---
 if nav == "Dashboard":
     st.title(f"Hi {st.session_state.auth['name']}! 👋")
     col1, col2 = st.columns([1, 2])
     with col1:
-        st.markdown('<div class="portal-card"><h3>🤝 Cooper</h3><p>Your friendly companion.</p></div>', unsafe_allow_html=True)
+        st.markdown('<div class="portal-card"><h3>🤝 Cooper</h3><p>Your friendly companion. I\'m here to chat and keep you company.</p></div>', unsafe_allow_html=True)
     with col2:
         container = st.container(height=400)
         for m in st.session_state.cooper_logs:
             with container.chat_message(m["role"]): st.write(m["content"])
         if p := st.chat_input("Chat with Cooper..."):
             st.session_state.cooper_logs.append({"role": "user", "content": p})
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a warm friend."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a warm, casual friend to a patient."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
             st.session_state.cooper_logs.append({"role": "assistant", "content": res})
             st.rerun()
 
-# --- 6. CAREGIVER (CLARA) ---
+# --- 6. CAREGIVER (CLARA - THE ANALYST) ---
 elif nav == "Caregiver Insights":
     st.title("📊 Clara Analysis")
     df = get_data()
@@ -93,8 +96,6 @@ elif nav == "Games":
     if st.button("⬅️ Back to Dashboard"): st.rerun()
 
     if game_type == "Zen Snake":
-        # [Existing swipe-snake code remains the same as previous stable version]
-        st.write("Snake Game Loading...")
         SNAKE_HTML = """
         <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; touch-action:none;">
@@ -156,7 +157,6 @@ elif nav == "Games":
             let flipped = [];
             let lock = false;
             const board = document.getElementById('g');
-
             shuffled.forEach(icon => {
                 const card = document.createElement('div');
                 card.className = 'card';
