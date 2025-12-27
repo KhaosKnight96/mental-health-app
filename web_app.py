@@ -13,7 +13,6 @@ st.markdown("""
     .stApp { background-color: #0F172A; color: #F8FAFC; }
     .portal-card { background: #1E293B; padding: 25px; border-radius: 20px; border: 1px solid #334155; margin-bottom: 20px; }
     
-    /* Immersive Glass UI Panels */
     .glass-panel {
         background: rgba(30, 41, 59, 0.7);
         backdrop-filter: blur(15px);
@@ -87,23 +86,13 @@ if not st.session_state.auth["logged_in"]:
             m = df[(df['Username'].astype(str) == u) & (df['Password'].astype(str) == p)]
             if not m.empty:
                 st.session_state.auth.update({"logged_in": True, "cid": u, "name": m.iloc[0]['Fullname']})
-                
-                # Load History from Sheets
                 all_chats = get_data("ChatLogs")
                 if not all_chats.empty:
                     user_chats = all_chats[all_chats['CoupleID'].astype(str) == str(u)]
-                    
                     cooper_data = user_chats[user_chats['Agent'] == "Cooper"]
-                    st.session_state.cooper_logs = [
-                        {"role": row["Role"], "content": row["Content"]} 
-                        for _, row in cooper_data.iterrows()
-                    ]
-                    
+                    st.session_state.cooper_logs = [{"role": row["Role"], "content": row["Content"]} for _, row in cooper_data.iterrows()]
                     clara_data = user_chats[user_chats['Agent'] == "Clara"]
-                    st.session_state.clara_logs = [
-                        {"role": row["Role"], "content": row["Content"]} 
-                        for _, row in clara_data.iterrows()
-                    ]
+                    st.session_state.clara_logs = [{"role": row["Role"], "content": row["Content"]} for _, row in clara_data.iterrows()]
                 st.rerun()
             else: st.error("Invalid Credentials")
     with t2:
@@ -136,39 +125,22 @@ with main_nav[0]:
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col2:
-        st.markdown(f"""
-            <div class="glass-panel">
-                <div class="avatar-pulse" style="background: linear-gradient(135deg, #38BDF8, #6366F1);">👤</div>
-                <h3 style='text-align:center; color:#38BDF8; margin-bottom:0;'>Cooper's Corner</h3>
-                <p style='text-align:center; color:#94A3B8; font-size:14px;'>A human companion for reflection</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
+        st.markdown('<div class="glass-panel"><div class="avatar-pulse" style="background:linear-gradient(135deg,#38BDF8,#6366F1);">👤</div><h3 style="text-align:center; color:#38BDF8; margin-bottom:0;">Cooper\'s Corner</h3><p style="text-align:center; color:#94A3B8; font-size:14px;">A human companion for reflection</p></div>', unsafe_allow_html=True)
         chat_box = st.container(height=380, border=False)
         with chat_box:
             for m in st.session_state.cooper_logs:
                 with st.chat_message(m["role"], avatar="👤"): st.write(m["content"])
-        
         if p := st.chat_input("Speak with Cooper..."):
             st.session_state.cooper_logs.append({"role": "user", "content": p})
             save_chat_to_sheets("Cooper", "user", p)
-            
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a wise and warm human companion. You are empathetic, calm, and professional."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
-            
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a wise and warm human companion."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
             st.session_state.cooper_logs.append({"role": "assistant", "content": res})
             save_chat_to_sheets("Cooper", "assistant", res)
             st.rerun()
 
 # --- 6. CLARA'S COUCH ---
 with main_nav[1]:
-    st.markdown(f"""
-        <div class="glass-panel">
-            <div class="avatar-pulse" style="background: linear-gradient(135deg, #F472B6, #FB7185);">🧘‍♀️</div>
-            <h3 style='text-align:center; color:#F472B6; margin-bottom:0;'>Clara's Couch</h3>
-            <p style='text-align:center; color:#94A3B8; font-size:14px;'>Weekly Insights & Clinical Trends</p>
-        </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown('<div class="glass-panel"><div class="avatar-pulse" style="background:linear-gradient(135deg,#F472B6,#FB7185);">🧘‍♀️</div><h3 style="text-align:center; color:#F472B6; margin-bottom:0;">Clara\'s Couch</h3><p style="text-align:center; color:#94A3B8; font-size:14px;">Weekly Insights & Clinical Trends</p></div>', unsafe_allow_html=True)
     c1, c2 = st.columns([1.5, 1])
     with c1:
         try:
@@ -176,24 +148,17 @@ with main_nav[1]:
             df_p = df_l[df_l['CoupleID'].astype(str) == str(st.session_state.auth['cid'])].copy()
             df_p['Timestamp'] = pd.to_datetime(df_p['Timestamp'])
             df_p = df_p.sort_values('Timestamp')
-            
             if not df_p.empty:
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=df_p['EnergyLog'], fill='tozeroy', line=dict(color='#F472B6', width=4)))
                 fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"), height=300)
                 st.plotly_chart(fig, use_container_width=True)
-                
                 if st.button("✨ Generate Clara's Weekly Insight"):
                     last_week = df_p[df_p['Timestamp'] > (datetime.now() - timedelta(days=7))]
                     data_summary = last_week['EnergyLog'].to_list()
-                    insight = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=[{"role":"system","content":"You are Clara, a clinical analyst. Summarize the following energy levels into a 3-sentence professional insight."},
-                                  {"role":"user","content": f"Data: {data_summary}"}]
-                    ).choices[0].message.content
+                    insight = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara, a clinical analyst. Summarize energy levels into 3 professional sentences."}, {"role":"user","content": f"Data: {data_summary}"}]).choices[0].message.content
                     st.info(insight)
         except: st.info("Recording history needed.")
-
     with c2:
         clara_chat = st.container(height=400, border=False)
         with clara_chat:
@@ -213,12 +178,10 @@ with main_nav[2]:
     gt = st.radio("Select Activity", ["Modern Snake", "Memory Match", "2048 Logic"], horizontal=True)
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Sound Logic shared across games
     JS_SOUNDS = """
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     function playSound(freq, type, duration, vol=0.1) {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
+        const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
         osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
         gain.gain.setValueAtTime(vol, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
@@ -229,43 +192,50 @@ with main_nav[2]:
 
     if gt == "Modern Snake":
         SNAKE_HTML = f"""
-        <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px;">
+        <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; position:relative;">
             <canvas id="s" width="300" height="300" style="border:4px solid #38BDF8; background:#0F172A; border-radius:10px;"></canvas>
             <h2 id="st" style="color:#38BDF8; font-family:sans-serif;">Score: 0</h2>
+            <div id="over" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.85); border-radius:15px; flex-direction:column; align-items:center; justify-content:center; z-index:10;">
+                <h1 style="color:#F87171; font-family:sans-serif; margin-bottom:5px;">GAME OVER</h1>
+                <p id="finalScore" style="color:white; font-family:sans-serif; font-size:1.2em; margin-bottom:20px;">Score: 0</p>
+                <button onclick="resetSnake()" style="background:#38BDF8; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer; font-weight:bold;">Try Again</button>
+            </div>
         </div>
         <script>
         {JS_SOUNDS}
         const canvas=document.getElementById("s"), ctx=canvas.getContext("2d"), box=15;
-        let score=0, d, snake=[{{x:10*box, y:10*box}}], food={{x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}};
-        
+        let score=0, d, game, snake, food;
+        function resetSnake() {{
+            document.getElementById("over").style.display = "none";
+            score=0; d=undefined; snake=[{{x:10*box, y:10*box}}];
+            food={{x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}};
+            document.getElementById("st").innerText="Score: 0";
+            if(game) clearInterval(game); game = setInterval(draw, 100);
+        }}
         window.addEventListener("keydown", e => {{ 
             if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
             if(e.code=="ArrowLeft" && d!="RIGHT") d="LEFT"; if(e.code=="ArrowUp" && d!="DOWN") d="UP";
             if(e.code=="ArrowRight" && d!="LEFT") d="RIGHT"; if(e.code=="ArrowDown" && d!="UP") d="DOWN"; 
         }});
-
         function draw() {{
             ctx.fillStyle="#0F172A"; ctx.fillRect(0,0,300,300);
             ctx.fillStyle = "#F87171"; ctx.beginPath(); ctx.arc(food.x+box/2, food.y+box/2, box/3, 0, Math.PI*2); ctx.fill();
             snake.forEach((p,i)=>{{ ctx.fillStyle= i==0 ? "#38BDF8" : "rgba(56, 189, 248, "+(1-i/snake.length)+")"; ctx.fillRect(p.x, p.y, box-1, box-1); }});
-            
             let hX=snake[0].x, hY=snake[0].y;
             if(d=="LEFT") hX-=box; if(d=="UP") hY-=box; if(d=="RIGHT") hX+=box; if(d=="DOWN") hY+=box;
-
             if(hX==food.x && hY==food.y){{
                 score++; document.getElementById("st").innerText="Score: "+score;
-                playSound(600, 'sine', 0.1);
-                food={{x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}};
+                playSound(600, 'sine', 0.1); food={{x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}};
             }} else if(d) snake.pop();
-
             let h={{x:hX, y:hY}};
             if(hX<0||hX>=300||hY<0||hY>=300||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){{
-                playSound(150, 'sawtooth', 0.5);
-                clearInterval(game); alert("Game Over! Score: " + score);
+                playSound(150, 'sawtooth', 0.5); clearInterval(game);
+                document.getElementById("finalScore").innerText = "Final Score: " + score;
+                document.getElementById("over").style.display = "flex";
             }}
             if(d) snake.unshift(h);
         }}
-        let game = setInterval(draw, 100);
+        resetSnake();
         </script>
         """
         st.components.v1.html(SNAKE_HTML, height=480)
@@ -293,8 +263,7 @@ with main_nav[2]:
                 card.dataset.icon = icon;
                 card.onclick = function() {{
                     if(lock || this.classList.contains('flipped')) return;
-                    playSound(440, 'sine', 0.05);
-                    this.classList.add('flipped'); flipped.push(this);
+                    playSound(440, 'sine', 0.05); this.classList.add('flipped'); flipped.push(this);
                     if(flipped.length === 2) {{
                         lock = true;
                         if(flipped[0].dataset.icon === flipped[1].dataset.icon) {{
@@ -317,95 +286,66 @@ with main_nav[2]:
 
     elif gt == "2048 Logic":
         T2048_HTML = f"""
-        <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; font-family:sans-serif;">
+        <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; font-family:sans-serif; position:relative;">
             <div id="grid" style="display:grid; grid-template-columns:repeat(4, 60px); grid-gap:10px; background:#0F172A; padding:10px; border-radius:10px;"></div>
-            <div style="display:flex; justify-content:space-between; width:270px; align-items:center;">
-                <h2 id="sc" style="color:#38BDF8; margin-top:15px;">Score: 0</h2>
-                <button onclick="init()" style="background:#334155; color:white; border:none; border-radius:5px; padding:5px 10px; cursor:pointer; margin-top:10px;">Reset</button>
+            <h2 id="sc" style="color:#38BDF8; margin-top:15px;">Score: 0</h2>
+            <div id="over2048" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.9); border-radius:15px; flex-direction:column; align-items:center; justify-content:center; z-index:10;">
+                <h1 style="color:#38BDF8; font-family:sans-serif; margin-bottom:5px;">OUT OF MOVES</h1>
+                <p id="finalScore2048" style="color:white; font-family:sans-serif; font-size:1.2em; margin-bottom:20px;">Score: 0</p>
+                <button onclick="init()" style="background:#38BDF8; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer; font-weight:bold;">Restart Game</button>
             </div>
         </div>
         <script>
             {JS_SOUNDS}
             const gridDisp = document.getElementById('grid');
             let board = Array(16).fill(0), score = 0;
-
-            function init() {{ 
-                board = Array(16).fill(0); 
-                score = 0;
-                addTile(); addTile(); render(); 
-            }}
-
+            function init() {{ document.getElementById("over2048").style.display = "none"; board = Array(16).fill(0); score = 0; addTile(); addTile(); render(); }}
             function addTile() {{
                 let empty = board.map((v, i) => v === 0 ? i : null).filter(v => v !== null);
                 if (empty.length) board[empty[Math.floor(Math.random()*empty.length)]] = Math.random() < 0.9 ? 2 : 4;
             }}
-
             function render() {{
                 gridDisp.innerHTML = '';
                 board.forEach(v => {{
                     const tile = document.createElement('div');
-                    tile.style.width = '60px';
-                    tile.style.height = '60px';
+                    tile.style.width = '60px'; tile.style.height = '60px';
                     tile.style.background = v ? '#38BDF8' : '#334155';
-                    tile.style.color = 'white';
-                    tile.style.display = 'flex';
-                    tile.style.alignItems = 'center';
-                    tile.style.justifyContent = 'center';
-                    tile.style.borderRadius = '5px';
-                    tile.style.fontWeight = 'bold';
-                    tile.style.fontSize = '20px';
-                    tile.innerText = v || '';
+                    tile.style.color = 'white'; tile.style.display = 'flex';
+                    tile.style.alignItems = 'center'; tile.style.justifyContent = 'center';
+                    tile.style.borderRadius = '5px'; tile.style.fontWeight = 'bold';
+                    tile.style.fontSize = '20px'; tile.innerText = v || '';
                     gridDisp.appendChild(tile);
                 }});
                 document.getElementById('sc').innerText = "Score: " + score;
                 checkGameOver();
             }}
-
             function checkGameOver() {{
-                // 1. Check for empty cells
                 if (board.includes(0)) return;
-
-                // 2. Check for possible merges (horizontally and vertically)
                 for (let i = 0; i < 4; i++) {{
                     for (let j = 0; j < 4; j++) {{
                         let current = board[i * 4 + j];
-                        // Check right neighbor
                         if (j < 3 && current === board[i * 4 + (j + 1)]) return;
-                        // Check bottom neighbor
                         if (i < 3 && current === board[(i + 1) * 4 + j]) return;
                     }}
                 }}
-
-                // If no empty cells and no merges found
                 playSound(150, 'sawtooth', 0.5);
-                alert("Game Over! No moves left. Your score: " + score);
+                document.getElementById("finalScore2048").innerText = "Final Score: " + score;
+                document.getElementById("over2048").style.display = "flex";
             }}
-
             window.addEventListener('keydown', e => {{
                 if(!["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) return;
-                e.preventDefault();
-                let old = [...board];
-                if(e.code === "ArrowLeft") move(0, 1, 4);
-                if(e.code === "ArrowRight") move(3, -1, 4);
-                if(e.code === "ArrowUp") move(0, 4, 1);
-                if(e.code === "ArrowDown") move(12, -4, 1);
-                
-                if (JSON.stringify(old) !== JSON.stringify(board)) {{
-                    playSound(523, 'sine', 0.05);
-                    addTile(); render();
-                }}
+                e.preventDefault(); let old = [...board];
+                if(e.code === "ArrowLeft") move(0, 1, 4); if(e.code === "ArrowRight") move(3, -1, 4);
+                if(e.code === "ArrowUp") move(0, 4, 1); if(e.code === "ArrowDown") move(12, -4, 1);
+                if (JSON.stringify(old) !== JSON.stringify(board)) {{ playSound(523, 'sine', 0.05); addTile(); render(); }}
             }});
-
             function move(start, step, side) {{
                 for (let i = 0; i < 4; i++) {{
                     let line = [];
                     for (let j = 0; j < 4; j++) line.push(board[start + i*side + j*step]);
                     let filtered = line.filter(v => v);
                     for (let j = 0; j < filtered.length - 1; j++) {{
-                        if (filtered[j] === filtered[j+1]) {{
-                            filtered[j] *= 2; score += filtered[j]; filtered.splice(j+1, 1);
-                            playSound(1046, 'sine', 0.1, 0.05);
-                        }}
+                        if (filtered[j] === filtered[j+1]) {{ filtered[j] *= 2; score += filtered[j]; filtered.splice(j+1, 1); playSound(1046, 'sine', 0.1, 0.05); }}
                     }}
                     while (filtered.length < 4) filtered.push(0);
                     for (let j = 0; j < 4; j++) board[start + i*side + j*step] = filtered[j];
@@ -415,12 +355,9 @@ with main_nav[2]:
         </script>
         """
         st.components.v1.html(T2048_HTML, height=480)
+
 # --- 8. LOGOUT ---
 with main_nav[3]:
     if st.button("Confirm Logout"):
         st.session_state.auth = {"logged_in": False}
         st.rerun()
-
-
-
-
