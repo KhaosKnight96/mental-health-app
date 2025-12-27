@@ -1,19 +1,27 @@
 import streamlit as st
 import pandas as pd
+import random
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 
-# --- 1. SETTINGS & STYLING ---
-st.set_page_config(page_title="Health Bridge Portal", layout="wide")
+# --- 1. CONFIG & MOBILE OPTIMIZATION ---
+st.set_page_config(page_title="Health Bridge", layout="wide", initial_sidebar_state="collapsed")
 
+# This CSS makes the app feel more like a mobile interface
 st.markdown("""
 <style>
-    .stApp { background-color: #0F172A !important; color: #F8FAFC !important; }
-    [data-testid="stSidebar"] { background-color: #1E293B !important; border-right: 1px solid #334155; }
-    .portal-card { background: #1E293B; padding: 25px; border-radius: 20px; border: 1px solid #334155; margin-bottom: 20px; }
-    h1, h2, h3, p, label { color: #F8FAFC !important; }
-    .stButton>button { border-radius: 12px !important; font-weight: 600 !important; }
+    .stApp { background-color: #0F172A; color: #F8FAFC; }
+    [data-testid="stSidebar"] { background-color: #1E293B; border-right: 1px solid #334155; }
+    .portal-card { background: #1E293B; padding: 20px; border-radius: 15px; border: 1px solid #334155; margin-bottom: 15px; }
+    .stButton>button { border-radius: 10px; font-weight: 600; height: 3em; width: 100%; }
+    /* Hide Streamlit branding for a cleaner app look */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
 </style>
+<head>
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+</head>
 """, unsafe_allow_html=True)
 
 # --- 2. CONNECTIONS ---
@@ -30,101 +38,98 @@ def get_data():
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-# --- 3. LOGIN GATE ---
+# --- 3. LOGIN ---
 if not st.session_state.auth["logged_in"]:
-    _, col, _ = st.columns([1, 1.2, 1])
-    with col:
-        st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge</h1>", unsafe_allow_html=True)
-        u_l = st.text_input("Couple ID")
-        p_l = st.text_input("Password", type="password")
-        if st.button("Sign In", use_container_width=True, type="primary"):
+    st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge</h1>", unsafe_allow_html=True)
+    with st.container():
+        u = st.text_input("Couple ID")
+        p = st.text_input("Password", type="password")
+        if st.button("Sign In"):
             df = get_data()
-            m = df[(df['Username'].astype(str) == u_l) & (df['Password'].astype(str) == p_l)]
+            m = df[(df['Username'].astype(str) == u) & (df['Password'].astype(str) == p)]
             if not m.empty:
-                st.session_state.auth.update({"logged_in": True, "cid": u_l, "name": m.iloc[0]['Fullname']})
+                st.session_state.auth.update({"logged_in": True, "cid": u, "name": m.iloc[0]['Fullname']})
                 st.rerun()
-            else: st.error("Invalid credentials.")
+            else: st.error("Access Denied.")
     st.stop()
 
-# --- 4. SIDEBAR NAVIGATION ---
+# --- 4. NAVIGATION ---
 with st.sidebar:
-    st.title("🌉 Health Bridge")
-    # Unified Game Navigation
-    main_page = st.selectbox("Navigation", ["Dashboard", "Caregiver Section", "Games"])
-    
-    game_choice = None
-    if main_page == "Games":
-        game_choice = st.radio("Select Game", ["Zen Snake", "Memory Match"])
-        
+    st.title("🌉 Menu")
+    nav = st.selectbox("Go to:", ["Dashboard", "Caregiver Insights", "Games"])
     st.divider()
-    if st.button("🚪 Logout"):
-        st.session_state.auth = {"logged_in": False, "cid": None, "name": None}
+    if st.button("Logout"):
+        st.session_state.auth = {"logged_in": False, "cid": None}
         st.rerun()
 
-# --- 5. DASHBOARD (COOPER - THE FRIEND) ---
-if main_page == "Dashboard":
-    st.markdown(f"<h1>Welcome, {st.session_state.auth['name']}! ☀️</h1>", unsafe_allow_html=True)
+# --- 5. DASHBOARD (COOPER - FRIEND) ---
+if nav == "Dashboard":
+    st.title(f"Hi {st.session_state.auth['name']}! 👋")
     col1, col2 = st.columns([1, 2])
-    with col1:
-        st.markdown('<div class="portal-card"><h3>🤝 Meet Cooper</h3><p>Your companion for the journey.</p></div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown('<div class="portal-card"><h3>💬 Chat with Cooper</h3>', unsafe_allow_html=True)
-        chat_container = st.container(height=350)
-        for m in st.session_state.cooper_logs:
-            with chat_container.chat_message(m["role"]): st.write(m["content"])
-        if prompt := st.chat_input("Hey Cooper..."):
-            st.session_state.cooper_logs.append({"role": "user", "content": prompt})
-            response = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "system", "content": "You are Cooper, a warm friend."}] + st.session_state.cooper_logs[-5:]).choices[0].message.content
-            st.session_state.cooper_logs.append({"role": "assistant", "content": response})
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# --- 6. CAREGIVER SECTION (CLARA - THE ANALYST) ---
-elif main_page == "Caregiver Section":
-    st.markdown("<h1>Caregiver Insights 📊</h1>", unsafe_allow_html=True)
-    df = get_data()
-    user_data = df[df['Username'].astype(str) == str(st.session_state.auth['cid'])]
     
-    col_data, col_chat = st.columns([1, 2])
-    with col_data:
-        st.markdown('<div class="portal-card"><h3>📋 Data Summary</h3>', unsafe_allow_html=True)
-        if not user_data.empty:
-            st.write(user_data.T) # Display user row as a vertical table
-        else:
-            st.warning("No data found for this ID.")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with col_chat:
-        st.markdown('<div class="portal-card"><h3>🤖 Clara Analyst AI</h3>', unsafe_allow_html=True)
-        clara_container = st.container(height=400)
-        for m in st.session_state.clara_logs:
-            with clara_container.chat_message(m["role"]): st.write(m["content"])
-        if clara_prompt := st.chat_input("Analyze data..."):
-            st.session_state.clara_logs.append({"role": "user", "content": clara_prompt})
-            c_response = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role": "system", "content": "You are Clara, a medical data analyst."}] + st.session_state.clara_logs[-5:]).choices[0].message.content
-            st.session_state.clara_logs.append({"role": "assistant", "content": c_response})
+    with col1:
+        st.markdown('<div class="portal-card"><h3>🤝 Cooper AI</h3><p>Your friendly companion. Talk to me about anything on your mind.</p></div>', unsafe_allow_html=True)
+    
+    with col2:
+        container = st.container(height=400)
+        for m in st.session_state.cooper_logs:
+            with container.chat_message(m["role"]): st.write(m["content"])
+        
+        if p := st.chat_input("Chat with Cooper..."):
+            st.session_state.cooper_logs.append({"role": "user", "content": p})
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a warm, casual friend to a patient."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
+            st.session_state.cooper_logs.append({"role": "assistant", "content": res})
             st.rerun()
+
+# --- 6. CAREGIVER (CLARA - ANALYST) ---
+elif nav == "Caregiver Insights":
+    st.title("📊 Clara Analysis")
+    df = get_data()
+    user_row = df[df['Username'].astype(str) == str(st.session_state.auth['cid'])]
+    
+    col_a, col_b = st.columns([1, 2])
+    with col_a:
+        st.markdown('<div class="portal-card"><h3>📋 Data Summary</h3>', unsafe_allow_html=True)
+        if not user_row.empty:
+            # Clean data for display
+            clean_display = user_row.drop(columns=['Password', 'Username']).T
+            clean_display.columns = ["Value"]
+            st.table(clean_display)
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 7. GAMES SECTION ---
-elif main_page == "Games":
-    if st.button("⬅️ Back to Dashboard"):
-        st.rerun() # Restarts script, defaulting back to Dashboard
+    with col_b:
+        st.markdown('<div class="portal-card"><h3>🤖 Clara Analyst</h3>', unsafe_allow_html=True)
+        container = st.container(height=400)
+        for m in st.session_state.clara_logs:
+            with container.chat_message(m["role"]): st.write(m["content"])
+        
+        if p := st.chat_input("Request analysis..."):
+            st.session_state.clara_logs.append({"role": "user", "content": p})
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara, a precise medical data analyst for caregivers."}]+st.session_state.clara_logs[-5:]).choices[0].message.content
+            st.session_state.clara_logs.append({"role": "assistant", "content": res})
+            st.rerun()
 
-    if game_choice == "Zen Snake":
-        st.title("🐍 Swipe Snake")
+# --- 7. GAMES (SNAKE & MEMORY) ---
+elif nav == "Games":
+    game_type = st.radio("Choose Game", ["Zen Snake", "Memory Match"], horizontal=True)
+    
+    if st.button("⬅️ Back to Dashboard", type="secondary"):
+        st.session_state.nav = "Dashboard" # Needs nav in state to work perfectly, but rerun works
+        st.rerun()
+
+    if game_type == "Zen Snake":
+        # Swipe and Keyboard Compatible Snake
         SNAKE_HTML = """
         <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; touch-action:none;">
-            <canvas id="s" width="350" height="350" style="border:4px solid #38BDF8; background:black;"></canvas>
-            <h2 id="status" style="color:#38BDF8; font-family:sans-serif; margin:10px 0;">Score: 0</h2>
-            <button onclick="location.reload()" style="padding:10px 20px; background:#38BDF8; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold;">🔄 Restart Game</button>
+            <canvas id="s" width="320" height="320" style="border:4px solid #38BDF8; background:black; border-radius:10px;"></canvas>
+            <h2 id="st" style="color:#38BDF8; font-family:sans-serif;">Score: 0</h2>
+            <button onclick="location.reload()" style="width:100%; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold; font-size:18px;">🔄 Restart Game</button>
         </div>
         <script>
-        const c=document.getElementById("s"), ctx=c.getContext("2d"), box=17.5;
+        const c=document.getElementById("s"), ctx=c.getContext("2d"), box=16;
         let score=0, d, snake=[{x:9*box, y:10*box}], food={x:5*box, y:5*box};
         
-        // Touch/Swipe Logic
         const mc = new Hammer(c);
         mc.get('swipe').set({ direction: Hammer.DIRECTION_ALL });
         mc.on("swipeleft", () => { if(d!="RIGHT") d="LEFT" });
@@ -139,17 +144,18 @@ elif main_page == "Games":
             if(e.keyCode==39 && d!="LEFT") d="RIGHT";
             if(e.keyCode==40 && d!="UP") d="DOWN";
         };
+
         function draw() {
-            ctx.fillStyle="black"; ctx.fillRect(0,0,350,350);
+            ctx.fillStyle="black"; ctx.fillRect(0,0,320,320);
             ctx.fillStyle="#F87171"; ctx.fillRect(food.x, food.y, box, box);
             snake.forEach((p,i)=>{ ctx.fillStyle=i==0?"#38BDF8":"white"; ctx.fillRect(p.x,p.y,box,box); });
             let hX=snake[0].x, hY=snake[0].y;
             if(d=="LEFT") hX-=box; if(d=="UP") hY-=box; if(d=="RIGHT") hX+=box; if(d=="DOWN") hY+=box;
-            if(hX==food.x && hY==food.y){ score++; document.getElementById("status").innerText="Score: "+score; food={x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box};}
+            if(hX==food.x && hY==food.y){ score++; document.getElementById("st").innerText="Score: "+score; food={x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box};}
             else if(d) snake.pop();
             let h={x:hX, y:hY};
-            if(hX<0||hX>=350||hY<0||hY>=350||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){
-                ctx.fillStyle="white"; ctx.fillText("GAME OVER", 130, 175);
+            if(hX<0||hX>=320||hY<0||hY>=320||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){
+                ctx.fillStyle="white"; ctx.font="20px Arial"; ctx.fillText("GAME OVER", 110, 160);
                 clearInterval(g);
             }
             if(d) snake.unshift(h);
@@ -157,43 +163,34 @@ elif main_page == "Games":
         let g = setInterval(draw, 120);
         </script>
         """
-        st.components.v1.html(SNAKE_HTML, height=550)
+        st.components.v1.html(SNAKE_HTML, height=600)
 
-    elif game_choice == "Memory Match":
-        st.title("🧩 Memory Match")
+    elif game_type == "Memory Match":
         MEMORY_HTML = """
-        <div id="game-board" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; max-width:400px; margin:auto;"></div>
-        <div style="text-align:center; margin-top:20px;">
-            <button onclick="location.reload()" style="padding:10px 20px; background:#38BDF8; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold;">🔄 New Game</button>
-        </div>
+        <div id="g" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; max-width:320px; margin:auto;"></div>
+        <button onclick="location.reload()" style="width:100%; max-width:320px; display:block; margin:20px auto; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold;">🔄 New Game</button>
         <script>
         const cards = ['🍎','🍎','💎','💎','🌟','🌟','🚀','🚀','🌈','🌈','🔥','🔥','🍀','🍀','🎁','🎁'];
         let shuffled = cards.sort(() => 0.5 - Math.random());
-        let selected = [];
-        const board = document.getElementById('game-board');
+        let sel = [];
+        const board = document.getElementById('g');
 
-        shuffled.forEach((symbol, index) => {
-            const card = document.createElement('div');
-            card.style = "height:80px; background:#1E293B; border:2px solid #38BDF8; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:30px; cursor:pointer; color:transparent;";
-            card.dataset.symbol = symbol;
-            card.onclick = function() {
-                if (selected.length < 2 && this.style.color === 'transparent') {
+        shuffled.forEach((s, i) => {
+            const el = document.createElement('div');
+            el.style = "height:70px; background:#1E293B; border:2px solid #38BDF8; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:25px; cursor:pointer; color:transparent; transition: 0.3s;";
+            el.dataset.s = s;
+            el.onclick = function() {
+                if (sel.length < 2 && this.style.color === 'transparent') {
                     this.style.color = 'white';
                     this.style.background = '#334155';
-                    selected.push(this);
-                    if (selected.length === 2) {
-                        if (selected[0].dataset.symbol === selected[1].dataset.symbol) {
-                            selected = [];
-                        } else {
-                            setTimeout(() => {
-                                selected.forEach(c => { c.style.color = 'transparent'; c.style.background = '#1E293B'; });
-                                selected = [];
-                            }, 700);
-                        }
+                    sel.push(this);
+                    if (sel.length === 2) {
+                        if (sel[0].dataset.s === sel[1].dataset.s) { sel = []; }
+                        else { setTimeout(() => { sel.forEach(c => { c.style.color='transparent'; c.style.background='#1E293B'; }); sel = []; }, 600); }
                     }
                 }
             };
-            board.appendChild(card);
+            board.appendChild(el);
         });
         </script>
         """
