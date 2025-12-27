@@ -77,7 +77,6 @@ with main_nav[2]:
     """, unsafe_allow_html=True)
 
     if gt == "Modern Snake":
-        # Note the doubled {{ }} for CSS/JS to escape f-string errors
         SNAKE_HTML = f"""
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px;">
             <canvas id="s" width="300" height="300" style="border:4px solid #38BDF8; background:#0F172A; border-radius:10px;"></canvas>
@@ -112,7 +111,7 @@ with main_nav[2]:
                 window.parent.location.href = window.parent.location.pathname + "?score=" + score + "&game=Modern Snake";
             }}
             if(d) snake.unshift(h);
-        }
+        }}
         let game = setInterval(draw, 100);
         </script>
         """
