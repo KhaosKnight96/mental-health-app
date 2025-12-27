@@ -7,7 +7,6 @@ from datetime import datetime
 # --- 1. APP CONFIG & MOBILE OPTIMIZATION ---
 st.set_page_config(page_title="Health Bridge", layout="wide", initial_sidebar_state="collapsed")
 
-# Custom CSS for the App Feel, Fancy Slider, and Card Layout
 st.markdown("""
 <style>
     .stApp { background-color: #0F172A; color: #F8FAFC; }
@@ -15,7 +14,6 @@ st.markdown("""
     .portal-card { background: #1E293B; padding: 25px; border-radius: 20px; border: 1px solid #334155; margin-bottom: 20px; }
     .stButton>button { border-radius: 12px; font-weight: 600; height: 3.5em; width: 100%; border: none; }
     .stSlider [data-baseweb="slider"] div { background-color: #38BDF8; }
-    /* Hide Streamlit Header/Footer */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -66,31 +64,41 @@ with st.sidebar:
         st.session_state.auth = {"logged_in": False, "cid": None}
         st.rerun()
 
-# --- 5. DASHBOARD (COOPER - THE FRIEND + ENERGY SLIDER) ---
+# --- 5. DASHBOARD (COOPER - THE FRIEND + 11-POINT ENERGY SLIDER) ---
 if nav == "Dashboard":
     st.title(f"Hi {st.session_state.auth['name']}! 👋")
-    
     col_vibe, col_chat = st.columns([1, 1.5])
     
     with col_vibe:
         st.markdown('<div class="portal-card"><h3>⚡ Energy Status</h3>', unsafe_allow_html=True)
-        # Energy Slider 
-        energy_val = st.slider("Where is your battery at?", 0, 10, 5)
-        energy_emojis = {0:"🪫", 1:"🏚️", 2:"🥱", 3:"🪵", 4:"🪴", 5:"🔋", 6:"🥤", 7:"⚡", 8:"🚀", 9:"🛰️", 10:"☀️"}
+        # 11 Point System: 1 is worst, 6 is neutral, 11 is best
+        energy_val = st.slider("Battery Level", 1, 11, 6)
+        
+        energy_emojis = {
+            1:"🪫", 2:"🏚️", 3:"🥱", 4:"😫", 5:"🙁", 
+            6:"🔋", 
+            7:"🙂", 8:"😊", 9:"⚡", 10:"🚀", 11:"☀️"
+        }
         current_emoji = energy_emojis.get(energy_val, "🔋")
         
         st.markdown(f"<h1 style='text-align:center; font-size:80px; margin: 10px 0;'>{current_emoji}</h1>", unsafe_allow_html=True)
-        st.markdown(f"<p style='text-align:center; color:#38BDF8; font-weight:bold;'>{energy_val * 10}% Charged</p>", unsafe_allow_html=True)
+        status_text = "Neutral" if energy_val == 6 else ("Optimal" if energy_val > 6 else "Low")
+        st.markdown(f"<p style='text-align:center; color:#38BDF8; font-weight:bold;'>Level {energy_val}: {status_text}</p>", unsafe_allow_html=True)
         
         if st.button("💾 Sync Energy"):
             try:
-                new_entry = pd.DataFrame([{"Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), "CoupleID": st.session_state.auth['cid'], "EnergyScore": energy_val, "Status": current_emoji}])
+                # Header is explicitly "Energy" as requested
+                new_entry = pd.DataFrame([{
+                    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), 
+                    "CoupleID": st.session_state.auth['cid'], 
+                    "Energy": energy_val
+                }])
                 existing_data = get_data("EnergyLogs")
                 updated_data = pd.concat([existing_data, new_entry], ignore_index=True)
                 conn.update(worksheet="EnergyLogs", data=updated_data)
-                st.success("Synced!")
+                st.success("Energy synced to Clara!")
                 st.balloons()
-            except: st.error("Error: Check 'EnergyLogs' sheet.")
+            except: st.error("Error: Check if worksheet 'EnergyLogs' exists with column 'Energy'.")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_chat:
@@ -98,10 +106,9 @@ if nav == "Dashboard":
         container = st.container(height=350)
         for m in st.session_state.cooper_logs:
             with container.chat_message(m["role"]): st.write(m["content"])
-        
         if p := st.chat_input("Hey Cooper..."):
             st.session_state.cooper_logs.append({"role": "user", "content": p})
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a warm, casual friend to the patient. You focus on empathy."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a warm, casual friend to the patient."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
             st.session_state.cooper_logs.append({"role": "assistant", "content": res})
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -125,7 +132,7 @@ elif nav == "Caregiver Insights":
             with container.chat_message(m["role"]): st.write(m["content"])
         if p := st.chat_input("Request technical analysis..."):
             st.session_state.clara_logs.append({"role": "user", "content": p})
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara, a medical data analyst. You are precise and clinical."}]+st.session_state.clara_logs[-5:]).choices[0].message.content
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara, a medical data analyst. Professional and precise."}]+st.session_state.clara_logs[-5:]).choices[0].message.content
             st.session_state.clara_logs.append({"role": "assistant", "content": res})
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
