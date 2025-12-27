@@ -23,8 +23,7 @@ def get_data(worksheet_name):
     except:
         return pd.DataFrame(columns=["CoupleID", "Game", "Score"])
 
-# --- 3. AUTO-SYNC LOGIC (CATCHES SCORE FROM URL) ---
-# When the game finishes, it reloads the page with ?score=XX in the URL
+# --- 3. AUTO-SYNC LOGIC ---
 query_params = st.query_params
 if "score" in query_params and st.session_state.auth["logged_in"]:
     new_score = int(query_params["score"])
@@ -43,7 +42,6 @@ if "score" in query_params and st.session_state.auth["logged_in"]:
         conn.update(worksheet="HighScores", data=hs_df)
         st.toast(f"🏆 New High Score: {new_score} saved!", icon="🔥")
     
-    # Clear the URL so it doesn't keep updating on every refresh
     st.query_params.clear()
     st.rerun()
 
@@ -66,7 +64,6 @@ main_nav = st.tabs(["🏠 Dashboard", "📊 Caregiver Insights", "🎮 Games", "
 with main_nav[2]:
     gt = st.radio("Choose Game", ["Modern Snake", "Memory Match"], horizontal=True)
     
-    # Show Personal Best
     hs_df = get_data("HighScores")
     cid = st.session_state.auth['cid']
     record = hs_df[(hs_df['CoupleID'].astype(str) == str(cid)) & (hs_df['Game'] == gt)]
@@ -75,11 +72,12 @@ with main_nav[2]:
     st.markdown(f"""
         <div style="background: #1E293B; padding: 15px; border-radius: 15px; border: 2px solid #38BDF8; text-align: center; margin-bottom: 20px;">
             <h2 style="margin:0; color: #38BDF8;">🏆 Personal Best: {pb}</h2>
-            <p style="margin:0; color: #94A3B8;">Scores update automatically after Game Over</p>
+            <p style="margin:0; color: #94A3B8;">Scores sync to Cloud automatically on Game Over</p>
         </div>
     """, unsafe_allow_html=True)
 
     if gt == "Modern Snake":
+        # Note the doubled {{ }} for CSS/JS to escape f-string errors
         SNAKE_HTML = f"""
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px;">
             <canvas id="s" width="300" height="300" style="border:4px solid #38BDF8; background:#0F172A; border-radius:10px;"></canvas>
@@ -111,7 +109,6 @@ with main_nav[2]:
             let h={{x:hX, y:hY}};
             if(hX<0||hX>=300||hY<0||hY>=300||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){{
                 clearInterval(game);
-                // THE AUTO-SYNC MAGIC:
                 window.parent.location.href = window.parent.location.pathname + "?score=" + score + "&game=Modern Snake";
             }}
             if(d) snake.unshift(h);
@@ -120,5 +117,48 @@ with main_nav[2]:
         </script>
         """
         st.components.v1.html(SNAKE_HTML, height=450)
-    else:
-        st.info("Memory Match: I can add the same auto-sync to this game next!")
+    
+    elif gt == "Memory Match":
+        MEMORY_HTML = f"""
+        <style>
+            .grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; margin: auto; }}
+            .card {{ height: 75px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }}
+            .card.flipped {{ transform: rotateY(180deg); }}
+            .face {{ position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #334155; }}
+            .front {{ background: #1E293B; border-color: #38BDF8; }}
+            .back {{ background: #334155; transform: rotateY(180deg); color: white; }}
+        </style>
+        <div class="grid" id="g"></div>
+        <script>
+            const icons = ['🍎','🍎','💎','💎','🌟','🌟','🚀','🚀','🌈','🌈','🔥','🔥','🍀','🍀','🎁','🎁'];
+            let shuffled = icons.sort(() => 0.5 - Math.random());
+            let flipped = [], lock = false, matches = 0;
+            const board = document.getElementById('g');
+            shuffled.forEach(icon => {{
+                const card = document.createElement('div'); card.className = 'card';
+                card.innerHTML = `<div class="face front"></div><div class="face back">${{icon}}</div>`;
+                card.dataset.icon = icon;
+                card.onclick = function() {{
+                    if(lock || this.classList.contains('flipped')) return;
+                    this.classList.add('flipped'); flipped.push(this);
+                    if(flipped.length === 2) {{
+                        lock = true;
+                        if(flipped[0].dataset.icon === flipped[1].dataset.icon) {{
+                            matches++; flipped = []; lock = false;
+                            if(matches === 8) {{
+                                setTimeout(() => {{
+                                    window.parent.location.href = window.parent.location.pathname + "?score=100&game=Memory Match";
+                                }}, 500);
+                            }}
+                        }} else {{
+                            setTimeout(() => {{ 
+                                flipped.forEach(c => c.classList.remove('flipped')); 
+                                flipped = []; lock = false; 
+                            }}, 800);
+                        }}
+                    }}
+                }}; board.appendChild(card);
+            }});
+        </script>
+        """
+        st.components.v1.html(MEMORY_HTML, height=400)
