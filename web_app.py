@@ -63,7 +63,7 @@ if st.session_state.auth["role"] is None:
 
 cid, cname, role = st.session_state.auth["cid"], st.session_state.auth["name"], st.session_state.auth["role"]
 
-# --- 3. UPDATED NAVIGATION LOGIC ---
+# --- 3. NAVIGATION LOGIC ---
 def reset_to_home():
     st.session_state.current_page = "Dashboard" if role == "patient" else "Analytics"
     if "game_selector" in st.session_state:
@@ -73,43 +73,30 @@ with st.sidebar:
     st.title("🌉 Health Bridge")
     st.write(f"Logged in: **{cname}**")
     
-    # Main Navigation
-    nav_options = ["Dashboard"] if role == "patient" else ["Analytics"]
-    main_nav = st.radio("Navigation", nav_options, key="main_nav_radio")
+    main_nav = st.radio("Navigation", ["Dashboard"] if role == "patient" else ["Analytics"], key="main_nav_radio")
     
     st.divider()
-    
-    # Zen Zone Expander
     with st.expander("🧩 Zen Zone", expanded=False):
-        game_choice = st.selectbox(
-            "Select Break", 
-            ["Select a Game", "Memory Match", "Snake"], 
-            key="game_selector"
-        )
+        game_choice = st.selectbox("Select Break", ["Select a Game", "Memory Match", "Snake"], key="game_selector")
     
-    # Logic to determine page
     if game_choice != "Select a Game":
         st.session_state.current_page = game_choice
     else:
         st.session_state.current_page = main_nav
 
-    # THE FIX: Global Return Button
     if st.session_state.current_page in ["Memory Match", "Snake"]:
         st.write("##")
-        if st.button("🏠 Exit Zen Zone", use_container_width=True, type="primary", on_click=reset_to_home):
-            st.rerun()
+        st.button("🏠 Exit Zen Zone", use_container_width=True, type="primary", on_click=reset_to_home)
 
     st.divider()
     if st.button("🔄 Switch Role"): st.session_state.auth["role"] = None; st.rerun()
     if st.button("🚪 Logout"): st.session_state.auth = {"logged_in": False, "role": None}; st.rerun()
 
-# Use the state to drive the UI
 mode = st.session_state.current_page
 
 # --- 4. PAGE CONTENT ---
 
 if mode in ["Dashboard", "Analytics"]:
-    # DASHBOARD LOGIC (Energy Scale + Cooper AI)
     if role == "patient":
         st.markdown(f'<div style="background: linear-gradient(90deg, #219EBC, #023047); padding: 25px; border-radius: 20px;"><h1>Hi {cname}! ☀️</h1></div>', unsafe_allow_html=True)
         col1, col2 = st.columns([1, 2])
@@ -133,26 +120,146 @@ if mode in ["Dashboard", "Analytics"]:
             p_in = st.chat_input("Tell Cooper how you're feeling...")
             if p_in:
                 st.session_state.chat_log.append({"type": "P", "msg": p_in})
-                msgs = [{"role":"system","content":f"You are Cooper, a warm, supportive health companion for {cname}."}] + \
+                msgs = [{"role":"system","content":f"You are Cooper, a warm, supportive companion for {cname}."}] + \
                        [{"role": "user" if m["type"]=="P" else "assistant", "content": m["msg"]} for m in st.session_state.chat_log[-6:]]
                 res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs).choices[0].message.content
                 st.session_state.chat_log.append({"type": "C", "msg": res}); st.rerun()
     else:
-        # CAREGIVER LOGIC
         st.title("👩‍⚕️ Caregiver Command")
         try:
             data = conn.read(worksheet="Sheet1", ttl=0)
             f_data = data[data['CoupleID'].astype(str) == str(cid)]
-            if not f_data.empty:
-                st.line_chart(f_data.set_index("Date")['Energy'])
+            if not f_data.empty: st.line_chart(f_data.set_index("Date")['Energy'])
         except: st.info("No data yet.")
 
 elif mode == "Memory Match":
     st.title("🧩 3D Memory Match")
-    # (Memory Match JS with Audio)
-    # [Insert memory match JS here...]
+    memory_html = """
+    <div id="game-ui" style="display:flex; justify-content:center; flex-wrap:wrap; gap:12px; perspective: 1000px; padding: 20px;"></div>
+    <script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playTone(freq, type, dur) {
+        const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+        osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + dur);
+    }
+    const icons = ["🌟","🌟","🍀","🍀","🎈","🎈","💎","💎","🌈","🌈","🦄","🦄","🍎","🍎","🎨","🎨"];
+    let shuffled = icons.sort(() => Math.random() - 0.5);
+    let flipped = []; let matched = []; let canFlip = true;
+    const container = document.getElementById('game-ui');
+    shuffled.forEach((icon, i) => {
+        const card = document.createElement('div');
+        card.style = "width: 80px; height: 110px; cursor: pointer;";
+        card.innerHTML = `<div class="card-inner" id="card-${i}" style="width: 100%; height: 100%; transition: transform 0.6s; transform-style: preserve-3d; position: relative;">
+                <div style="position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 24px; border-radius: 12px; background: #219EBC; color: white; border: 2px solid white;">?</div>
+                <div style="position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; border-radius: 12px; background: white; transform: rotateY(180deg); border: 2px solid #219EBC;">${icon}</div>
+            </div>`;
+        card.onclick = () => {
+            if (!canFlip || flipped.includes(i) || matched.includes(i)) return;
+            playTone(400, 'sine', 0.1);
+            document.getElementById(`card-${i}`).style.transform = "rotateY(180deg)";
+            flipped.push({i, icon});
+            if (flipped.length === 2) {
+                canFlip = false;
+                if (flipped[0].icon === flipped[1].icon) {
+                    setTimeout(() => playTone(800, 'triangle', 0.2), 300);
+                    matched.push(flipped[0].i, flipped[1].i); flipped = []; canFlip = true;
+                } else {
+                    setTimeout(() => {
+                        playTone(200, 'sine', 0.1);
+                        document.getElementById(`card-${flipped[0].i}`).style.transform = "rotateY(0deg)";
+                        document.getElementById(`card-${flipped[1].i}`).style.transform = "rotateY(0deg)";
+                        flipped = []; canFlip = true;
+                    }, 1000);
+                }
+            }
+        };
+        container.appendChild(card);
+    });
+    </script>
+    """
+    st.components.v1.html(memory_html, height=600)
 
 elif mode == "Snake":
     st.title("🐍 Zen Snake")
-    # (Snake JS with Swipe, Audio, and Custom Game Over)
-    # [Insert snake game JS here...]
+    snake_html = """
+    <div id="game-container" style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:24px; touch-action: none; position: relative;">
+        <canvas id="snakeGame" width="400" height="400" style="border:4px solid #38BDF8; border-radius:12px; background:#0F172A; max-width: 100%;"></canvas>
+        <div id="overlay" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15, 23, 42, 0.9); border-radius:24px; flex-direction:column; justify-content:center; align-items:center; z-index:100;">
+            <h1 style="color:#F87171; font-size:48px;">GAME OVER</h1>
+            <p id="finalScore" style="color:white; font-size:20px;">Score: 0</p>
+            <button onclick="resetGame()" style="padding:15px 30px; background:#38BDF8; color:white; border:none; border-radius:10px; cursor:pointer; font-weight:bold;">TRY AGAIN</button>
+        </div>
+    </div>
+    <script>
+        const canvas = document.getElementById("snakeGame"); const ctx = canvas.getContext("2d");
+        const overlay = document.getElementById("overlay"); const scoreDisplay = document.getElementById("finalScore");
+        const box = 20; let snake, food, d, score, game;
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playTone(freq, type, dur) {
+            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
+            osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + dur);
+        }
+        function init() {
+            snake = [{x: 9 * box, y: 10 * box}];
+            food = {x: Math.floor(Math.random()*19+1)*box, y: Math.floor(Math.random()*19+1)*box};
+            d = null; score = 0; overlay.style.display = "none";
+            if(game) clearInterval(game); game = setInterval(draw, 120);
+        }
+        function resetGame() { init(); }
+        function changeDir(dir) {
+            if(dir == 'left' && d != 'RIGHT') d = 'LEFT';
+            if(dir == 'up' && d != 'DOWN') d = 'UP';
+            if(dir == 'right' && d != 'LEFT') d = 'RIGHT';
+            if(dir == 'down' && d != 'UP') d = 'DOWN';
+        }
+        document.addEventListener("keydown", e => {
+            const keys = {37:'left', 38:'up', 39:'right', 40:'down'};
+            if(keys[e.keyCode]) changeDir(keys[e.keyCode]);
+        });
+        let xD, yD;
+        canvas.addEventListener('touchstart', e => { xD = e.touches[0].clientX; yD = e.touches[0].clientY; }, false);
+        canvas.addEventListener('touchmove', e => {
+            if (!xD || !yD) return;
+            let xU = e.touches[0].clientX, yU = e.touches[0].clientY;
+            let xDf = xD - xU, yDf = yD - yU;
+            if (Math.abs(xDf) > Math.abs(yDf)) { changeDir(xDf > 0 ? 'left' : 'right'); }
+            else { changeDir(yDf > 0 ? 'up' : 'down'); }
+            xD = null; yD = null;
+        }, false);
+        function draw() {
+            ctx.fillStyle = "#0F172A"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            for(let i=0; i<snake.length; i++) {
+                ctx.fillStyle = (i==0) ? "#38BDF8" : "#219EBC";
+                ctx.fillRect(snake[i].x, snake[i].y, box, box);
+            }
+            ctx.fillStyle = "#F87171"; ctx.fillRect(food.x, food.y, box, box);
+            let sX = snake[0].x, sY = snake[0].y;
+            if(d == "LEFT") sX -= box; if(d == "UP") sY -= box;
+            if(d == "RIGHT") sX += box; if(d == "DOWN") sY += box;
+            if(sX == food.x && sY == food.y) {
+                score++; playTone(600, 'sine', 0.1);
+                food = {x: Math.floor(Math.random()*19+1)*box, y: Math.floor(Math.random()*19+1)*box};
+            } else if(d) { snake.pop(); }
+            let head = {x: sX, y: sY};
+            if(sX < 0 || sX >= canvas.width || sY < 0 || sY >= canvas.height || (d && collision(head, snake))) {
+                clearInterval(game); playTone(150, 'sawtooth', 0.5);
+                scoreDisplay.innerText = "Final Score: " + score; overlay.style.display = "flex";
+            }
+            if(d) snake.unshift(head);
+        }
+        function collision(h, a) {
+            for(let i=0; i<a.length; i++) if(h.x==a[i].x && h.y==a[i].y) return true;
+            return false;
+        }
+        init();
+    </script>
+    """
+    st.components.v1.html(snake_html, height=600)
