@@ -59,6 +59,7 @@ def save_chat_to_sheets(agent, role, content):
 if not st.session_state.auth["logged_in"]:
     st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge Portal</h1>", unsafe_allow_html=True)
     t1, t2 = st.tabs(["🔐 Login", "📝 Sign Up"])
+    
     with t1:
         u = st.text_input("Member ID", key="l_u").strip().lower()
         p = st.text_input("Password", type="password", key="l_p")
@@ -72,6 +73,7 @@ if not st.session_state.auth["logged_in"]:
                         "name": m.iloc[0]['fullname'] if 'fullname' in m.columns else u,
                         "role": str(m.iloc[0]['role']).lower() if 'role' in m.columns else 'user'
                     })
+                    # Load History
                     all_chats = get_data("ChatLogs")
                     if not all_chats.empty:
                         user_chats = all_chats[all_chats['memberid'].astype(str).str.lower() == u]
@@ -79,15 +81,32 @@ if not st.session_state.auth["logged_in"]:
                         st.session_state.clara_logs = [{"role": r["role"], "content": r["content"]} for _, r in user_chats[user_chats['agent'] == "Clara"].iterrows()]
                     st.rerun()
                 else: st.error("Invalid Credentials")
+
     with t2:
         n = st.text_input("Full Name")
         mid_new = st.text_input("New Member ID").strip().lower()
         p_new = st.text_input("Create Password", type="password")
+        
         if st.button("Register"):
-            df = get_data("Users")
-            new_user = pd.DataFrame([{"fullname": n, "memberid": mid_new, "password": p_new, "role": "user"}])
-            conn.update(worksheet="Users", data=pd.concat([df, new_user], ignore_index=True))
-            st.success("Account created!")
+            if not n or not mid_new or not p_new:
+                st.warning("Please fill in all fields.")
+            else:
+                df = get_data("Users")
+                
+                # DUPLICATE CHECK LOGIC
+                is_duplicate = False
+                if not df.empty and 'memberid' in df.columns:
+                    # Check if the ID exists (case-insensitive)
+                    if mid_new in df['memberid'].astype(str).str.lower().values:
+                        is_duplicate = True
+                
+                if is_duplicate:
+                    st.error(f"The Member ID '{mid_new}' is already taken. Please choose another or login.")
+                else:
+                    # Proceed with registration
+                    new_user = pd.DataFrame([{"fullname": n, "memberid": mid_new, "password": p_new, "role": "user"}])
+                    conn.update(worksheet="Users", data=pd.concat([df, new_user], ignore_index=True))
+                    st.success("Account created successfully! You can now switch to the Login tab.")
     st.stop()
 
 # --- 4. NAVIGATION ---
@@ -209,3 +228,4 @@ with main_nav[-1]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
