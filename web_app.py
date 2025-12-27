@@ -31,8 +31,8 @@ if "auth" not in st.session_state:
 if "cooper_logs" not in st.session_state: st.session_state.cooper_logs = []
 if "clara_logs" not in st.session_state: st.session_state.clara_logs = []
 
-def get_data(worksheet="Users"):
-    df = conn.read(worksheet=worksheet, ttl=0)
+def get_data(worksheet_name="Users"):
+    df = conn.read(worksheet=worksheet_name, ttl=0)
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
@@ -72,7 +72,6 @@ if nav == "Dashboard":
         # 11-point system (1 to 11)
         energy_val = st.slider("Energy Scale (1=Worst, 6=Neutral, 11=Best)", 1, 11, 6)
         
-        # Emoji Logic for 11 points
         energy_emojis = {
             1: "🚨", 2: "🪫", 3: "😫", 4: "🥱", 5: "🙁", 
             6: "😐", 
@@ -86,19 +85,26 @@ if nav == "Dashboard":
         
         if st.button("💾 Sync Energy"):
             try:
-                # Header set as "Energy" as requested
-                new_entry = pd.DataFrame([{
+                # 1. Prepare data with exact header "EnergyLog"
+                new_row = pd.DataFrame([{
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), 
                     "CoupleID": st.session_state.auth['cid'], 
-                    "Energy": energy_val, 
+                    "EnergyLog": energy_val, 
                     "Emoji": current_emoji
                 }])
-                existing_data = get_data("EnergyLogs")
-                updated_data = pd.concat([existing_data, new_entry], ignore_index=True)
-                conn.update(worksheet="EnergyLogs", data=updated_data)
-                st.success("Energy Synced to Sheets!")
+                
+                # 2. Read from "Sheet1"
+                existing_data = conn.read(worksheet="Sheet1", ttl=0)
+                existing_data.columns = [str(c).strip() for c in existing_data.columns]
+                
+                # 3. Append and Update "Sheet1"
+                updated_data = pd.concat([existing_data, new_row], ignore_index=True)
+                conn.update(worksheet="Sheet1", data=updated_data)
+                
+                st.success("Energy synced to Sheet1!")
                 st.balloons()
-            except: st.error("Sync Error: Ensure 'EnergyLogs' sheet has an 'Energy' header.")
+            except Exception as e:
+                st.error(f"Sync Error: Ensure 'Sheet1' has a header named 'EnergyLog'. ({e})")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_chat:
@@ -106,18 +112,14 @@ if nav == "Dashboard":
         container = st.container(height=350)
         for m in st.session_state.cooper_logs:
             with container.chat_message(m["role"]): st.write(m["content"])
-        
         if p := st.chat_input("Hey Cooper..."):
             st.session_state.cooper_logs.append({"role": "user", "content": p})
-            res = client.chat.completions.create(
-                model="llama-3.3-70b-versatile", 
-                messages=[{"role":"system","content":"You are Cooper, a warm, casual friend to the patient."}]+st.session_state.cooper_logs[-5:]
-            ).choices[0].message.content
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a warm friend."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
             st.session_state.cooper_logs.append({"role": "assistant", "content": res})
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 6. CAREGIVER SECTION (CLARA) ---
+# --- 6. CAREGIVER SECTION ---
 elif nav == "Caregiver Insights":
     st.title("📊 Clara Analysis")
     df_users = get_data("Users")
@@ -136,15 +138,12 @@ elif nav == "Caregiver Insights":
             with container.chat_message(m["role"]): st.write(m["content"])
         if p := st.chat_input("Analyze energy trends..."):
             st.session_state.clara_logs.append({"role": "user", "content": p})
-            res = client.chat.completions.create(
-                model="llama-3.3-70b-versatile", 
-                messages=[{"role":"system","content":"You are Clara, a precise data analyst."}]+st.session_state.clara_logs[-5:]
-            ).choices[0].message.content
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara, a precise analyst."}]+st.session_state.clara_logs[-5:]).choices[0].message.content
             st.session_state.clara_logs.append({"role": "assistant", "content": res})
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 7. GAMES SECTION (SNAKE & MEMORY MATCH) ---
+# --- 7. GAMES SECTION ---
 elif nav == "Games":
     if st.button("⬅️ Back to Dashboard"): st.rerun()
     game_type = st.radio("Select Game", ["Zen Snake", "Memory Match"], horizontal=True)
@@ -162,10 +161,8 @@ elif nav == "Games":
         let score=0, d, snake=[{x:9*box, y:10*box}], food={x:5*box, y:5*box};
         const mc = new Hammer(c);
         mc.get('swipe').set({ direction: Hammer.DIRECTION_ALL });
-        mc.on("swipeleft", () => { if(d!="RIGHT") d="LEFT" }); 
-        mc.on("swiperight", () => { if(d!="LEFT") d="RIGHT" });
-        mc.on("swipeup", () => { if(d!="DOWN") d="UP" }); 
-        mc.on("swipedown", () => { if(d!="UP") d="DOWN" });
+        mc.on("swipeleft", () => { if(d!="RIGHT") d="LEFT" }); mc.on("swiperight", () => { if(d!="LEFT") d="RIGHT" });
+        mc.on("swipeup", () => { if(d!="DOWN") d="UP" }); mc.on("swipedown", () => { if(d!="UP") d="DOWN" });
         function draw() {
             ctx.fillStyle="black"; ctx.fillRect(0,0,320,320);
             ctx.fillStyle="#F87171"; ctx.fillRect(food.x, food.y, box, box);
