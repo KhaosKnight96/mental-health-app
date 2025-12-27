@@ -29,10 +29,21 @@ if "current_page" not in st.session_state: st.session_state.current_page = "Dash
 def get_clean_users():
     try:
         df = conn.read(worksheet="Users", ttl=0)
-        df.columns = [str(c).strip().title().replace(" ", "") for c in df.columns]
-        if 'Highscore' in df.columns: df = df.rename(columns={'Highscore': 'HighScore'})
+        # Normalize columns: lowercase and remove spaces
+        # Example: "High Score " -> "highscore"
+        df.columns = [str(c).lower().replace(" ", "").strip() for c in df.columns]
+        
+        # Rename to the internal names the script expects
+        mapping = {
+            'username': 'Username',
+            'password': 'Password',
+            'fullname': 'Fullname',
+            'highscore': 'HighScore'
+        }
+        df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
         return df
-    except:
+    except Exception as e:
+        st.error(f"Sheet Error: {e}")
         return pd.DataFrame()
 
 # --- 3. PERSISTENT HIGH SCORE SYNC ---
@@ -48,6 +59,8 @@ if "last_score" in qp and st.session_state.auth.get("logged_in"):
                 current_high = pd.to_numeric(udf.at[idx, 'HighScore'], errors='coerce') or 0
                 if new_s > current_high:
                     udf.at[idx, 'HighScore'] = new_s
+                    # Convert back to original sheet format before saving if necessary
+                    # But conn.update works well with current udf
                     conn.update(worksheet="Users", data=udf)
                     st.toast(f"🏆 Record Saved: {new_s}!", icon="🔥")
     except: pass
@@ -68,7 +81,7 @@ if not st.session_state.auth["logged_in"]:
                     st.session_state.auth.update({"logged_in": True, "cid": u_l, "name": m.iloc[0]['Fullname']})
                     st.rerun()
                 else: st.error("Invalid credentials.")
-            else: st.error("Database error. Check column headers.")
+            else: st.error("Column 'Username' not found in your Google Sheet.")
     st.stop()
 
 if st.session_state.auth["role"] is None:
@@ -102,10 +115,12 @@ if st.session_state.current_page == "Dashboard":
     with col1:
         udf = get_clean_users()
         pb = 0
-        if not udf.empty:
+        if not udf.empty and 'HighScore' in udf.columns:
             row = udf[udf['Username'].astype(str) == str(cid)]
             if not row.empty: pb = pd.to_numeric(row['HighScore'].values[0], errors='coerce') or 0
         st.markdown(f'<div class="portal-card"><h3 style="color:#FFD700;">🏆 Snake Record: {pb}</h3></div>', unsafe_allow_html=True)
+        
+        # Energy Log
         st.markdown('<div class="portal-card"><h3>✨ Energy Log</h3>', unsafe_allow_html=True)
         vibe = st.select_slider("Vibe:", options=["Resting", "Low", "Steady", "Good", "Active", "Vibrant", "Radiant"], value="Steady")
         if st.button("Log Energy", use_container_width=True):
