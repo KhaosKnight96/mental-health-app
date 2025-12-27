@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+import pd
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
@@ -62,7 +62,7 @@ with st.sidebar:
         st.session_state.auth = {"logged_in": False, "cid": None}
         st.rerun()
 
-# --- 5. DASHBOARD (COOPER + 11-POINT ENERGY SCALE) ---
+# --- 5. DASHBOARD (COOPER + SILENT ENERGY SYNC) ---
 if nav == "Dashboard":
     st.title(f"Hi {st.session_state.auth['name']}! 👋")
     col_vibe, col_chat = st.columns([1, 1.5])
@@ -85,7 +85,7 @@ if nav == "Dashboard":
         
         if st.button("💾 Sync Energy"):
             try:
-                # 1. Prepare data with exact header "EnergyLog"
+                # Prepare data with your exact header "EnergyLog"
                 new_row = pd.DataFrame([{
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), 
                     "CoupleID": st.session_state.auth['cid'], 
@@ -93,18 +93,16 @@ if nav == "Dashboard":
                     "Emoji": current_emoji
                 }])
                 
-                # 2. Read from "Sheet1"
+                # Read from "Sheet1"
                 existing_data = conn.read(worksheet="Sheet1", ttl=0)
                 existing_data.columns = [str(c).strip() for c in existing_data.columns]
                 
-                # 3. Append and Update "Sheet1"
+                # Append and Update silently (No success message or balloons)
                 updated_data = pd.concat([existing_data, new_row], ignore_index=True)
                 conn.update(worksheet="Sheet1", data=updated_data)
                 
-                st.success("Energy synced to Sheet1!")
-                st.balloons()
             except Exception as e:
-                st.error(f"Sync Error: Ensure 'Sheet1' has a header named 'EnergyLog'. ({e})")
+                st.error(f"Sync Error: {e}")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_chat:
