@@ -101,10 +101,8 @@ with main_nav[1]:
         if not df_p.empty:
             st.markdown('<div class="portal-card"><h3>📉 Energy Analytics</h3>', unsafe_allow_html=True)
             fig = go.Figure()
-            # Neutral Baseline Line
             fig.add_shape(type="line", x0=df_p['Timestamp'].min(), y0=6, x1=df_p['Timestamp'].max(), y1=6,
                           line=dict(color="White", width=2, dash="dash"))
-            # Energy Line with Red/Green filling
             fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=df_p['EnergyLog'], mode='lines+markers',
                                      line=dict(color='#38BDF8', width=3), name='Energy',
                                      fill='tozeroy', fillcolor='rgba(248, 113, 113, 0.2)'))
@@ -129,39 +127,71 @@ with main_nav[1]:
 
 # --- 7. GAMES TAB ---
 with main_nav[2]:
-    gt = st.radio("Choose Game", ["Snake", "Memory Match"], horizontal=True)
-    if gt == "Snake":
+    gt = st.radio("Choose Game", ["Modern Snake", "Memory Match"], horizontal=True)
+    
+    if gt == "Modern Snake":
         SNAKE_HTML = """
         <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; touch-action:none;">
-            <canvas id="s" width="300" height="300" style="border:4px solid #38BDF8; background:black; border-radius:10px;"></canvas>
-            <h2 id="st" style="color:#38BDF8; font-family:sans-serif;">Score: 0</h2>
-            <button onclick="location.reload()" style="width:100%; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold;">🔄 Restart</button>
+            <canvas id="s" width="300" height="300" style="border:4px solid #38BDF8; background:#0F172A; border-radius:10px; box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);"></canvas>
+            <h2 id="st" style="color:#38BDF8; font-family:sans-serif; text-shadow: 0 0 10px rgba(56, 189, 248, 0.5);">Score: 0</h2>
+            <button onclick="location.reload()" style="width:100%; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold; cursor:pointer;">🔄 Restart</button>
         </div>
         <script>
-        const canvas=document.getElementById("s"), ctx=canvas.getContext("2d"), box=20;
-        let score=0, d, snake=[{x:7*box, y:7*box}], food={x:Math.floor(Math.random()*14+1)*box, y:Math.floor(Math.random()*14+1)*box};
-        window.addEventListener("keydown", e => { if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
+        const canvas=document.getElementById("s"), ctx=canvas.getContext("2d"), box=15;
+        let score=0, d, snake=[{x:10*box, y:10*box}], food={x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box};
+        
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(freq, type, duration) {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + duration);
+        }
+
+        window.addEventListener("keydown", e => { 
+            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
             if(e.code=="ArrowLeft" && d!="RIGHT") d="LEFT"; if(e.code=="ArrowUp" && d!="DOWN") d="UP";
-            if(e.code=="ArrowRight" && d!="LEFT") d="RIGHT"; if(e.code=="ArrowDown" && d!="UP") d="DOWN"; });
-        const mc = new Hammer(canvas); mc.get('swipe').set({ direction: Hammer.DIRECTION_ALL });
-        mc.on("swipeleft swipeup swiperight swipedown", e => { e.preventDefault();
-            if(e.type=="swipeleft" && d!="RIGHT") d="LEFT"; if(e.type=="swipeup" && d!="DOWN") d="UP";
-            if(e.type=="swiperight" && d!="LEFT") d="RIGHT"; if(e.type=="swipedown" && d!="UP") d="DOWN"; });
-        function draw() { ctx.fillStyle="black"; ctx.fillRect(0,0,300,300);
-            ctx.font = "18px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-            ctx.fillText("🍅", food.x + box/2, food.y + box/2);
-            snake.forEach((p,i)=>{ ctx.fillStyle=i==0?"#38BDF8":"white"; ctx.fillRect(p.x,p.y,box-1,box-1); });
+            if(e.code=="ArrowRight" && d!="LEFT") d="RIGHT"; if(e.code=="ArrowDown" && d!="UP") d="DOWN"; 
+        });
+
+        function draw() {
+            ctx.fillStyle="#0F172A"; ctx.fillRect(0,0,300,300);
+            
+            // Draw Food (Neon Glow)
+            ctx.shadowBlur = 15; ctx.shadowColor = "#F87171";
+            ctx.fillStyle = "#F87171"; ctx.beginPath();
+            ctx.arc(food.x+box/2, food.y+box/2, box/3, 0, Math.PI*2); ctx.fill();
+            
+            // Draw Snake
+            ctx.shadowBlur = 10; ctx.shadowColor = "#38BDF8";
+            snake.forEach((p,i)=>{
+                ctx.fillStyle= i==0 ? "#38BDF8" : "rgba(56, 189, 248, "+(1 - i/snake.length)+")";
+                ctx.beginPath(); ctx.roundRect(p.x, p.y, box-1, box-1, 4); ctx.fill();
+            });
+            ctx.shadowBlur = 0;
+
             let hX=snake[0].x, hY=snake[0].y;
             if(d=="LEFT") hX-=box; if(d=="UP") hY-=box; if(d=="RIGHT") hX+=box; if(d=="DOWN") hY+=box;
-            if(hX==food.x && hY==food.y){ score++; document.getElementById("st").innerText="Score: "+score; 
-                food={x:Math.floor(Math.random()*14+1)*box, y:Math.floor(Math.random()*14+1)*box};
+
+            if(hX==food.x && hY==food.y){
+                score++; document.getElementById("st").innerText="Score: "+score;
+                playSound(600, 'sine', 0.1);
+                food={x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box};
             } else if(d) snake.pop();
+
             let h={x:hX, y:hY};
             if(hX<0||hX>=300||hY<0||hY>=300||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){
-                ctx.fillStyle="white"; ctx.font="bold 24px Arial"; ctx.fillText("GAME OVER", 150, 150); clearInterval(game); }
-            if(d) snake.unshift(h); }
-        let game = setInterval(draw, 140);
+                playSound(150, 'sawtooth', 0.5);
+                ctx.fillStyle="white"; ctx.font="bold 24px Arial"; ctx.textAlign="center";
+                ctx.fillText("GAME OVER", 150, 150); clearInterval(game);
+            }
+            if(d) snake.unshift(h);
+        }
+        let game = setInterval(draw, 100);
         </script>
         """
         st.components.v1.html(SNAKE_HTML, height=520)
@@ -171,13 +201,22 @@ with main_nav[2]:
             .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; margin: auto; }
             .card { height: 75px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }
             .card.flipped { transform: rotateY(180deg); }
-            .face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #38BDF8; }
-            .front { background: #1E293B; }
+            .face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #334155; }
+            .front { background: #1E293B; border-color: #38BDF8; }
             .back { background: #334155; transform: rotateY(180deg); color: white; }
         </style>
         <div class="grid" id="g"></div>
-        <button onclick="location.reload()" style="width:100%; max-width:320px; display:block; margin:20px auto; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold;">🔄 New Game</button>
+        <button onclick="location.reload()" style="width:100%; max-width:320px; display:block; margin:20px auto; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold; cursor:pointer;">🔄 New Game</button>
         <script>
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            function playSound(f, t, d) {
+                const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+                o.type = t; o.frequency.setValueAtTime(f, audioCtx.currentTime);
+                g.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + d);
+                o.connect(g); g.connect(audioCtx.destination); o.start(); o.stop(audioCtx.currentTime + d);
+            }
+
             const icons = ['🍎','🍎','💎','💎','🌟','🌟','🚀','🚀','🌈','🌈','🔥','🔥','🍀','🍀','🎁','🎁'];
             let shuffled = icons.sort(() => 0.5 - Math.random());
             let flipped = [], lock = false;
@@ -188,11 +227,20 @@ with main_nav[2]:
                 card.dataset.icon = icon;
                 card.onclick = function() {
                     if(lock || this.classList.contains('flipped')) return;
+                    playSound(440, 'sine', 0.1);
                     this.classList.add('flipped'); flipped.push(this);
                     if(flipped.length === 2) {
                         lock = true;
-                        if(flipped[0].dataset.icon === flipped[1].dataset.icon) { flipped = []; lock = false; }
-                        else { setTimeout(() => { flipped.forEach(c => c.classList.remove('flipped')); flipped = []; lock = false; }, 800); }
+                        if(flipped[0].dataset.icon === flipped[1].dataset.icon) {
+                            setTimeout(() => playSound(880, 'sine', 0.2), 200);
+                            flipped = []; lock = false;
+                        } else {
+                            setTimeout(() => { 
+                                playSound(200, 'sine', 0.2);
+                                flipped.forEach(c => c.classList.remove('flipped')); 
+                                flipped = []; lock = false; 
+                            }, 800);
+                        }
                     }
                 }; board.appendChild(card);
             });
