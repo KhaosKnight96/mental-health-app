@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
-from datetime import datetime
+from datetime import datetime, timedelta
 import plotly.graph_objects as go
 
 # --- 1. CONFIG ---
@@ -13,7 +13,6 @@ st.markdown("""
     .stApp { background-color: #0F172A; color: #F8FAFC; }
     .portal-card { background: #1E293B; padding: 25px; border-radius: 20px; border: 1px solid #334155; margin-bottom: 20px; }
     
-    /* Immersive Glass UI */
     .glass-panel {
         background: rgba(30, 41, 59, 0.7);
         backdrop-filter: blur(15px);
@@ -25,18 +24,16 @@ st.markdown("""
     
     .avatar-pulse {
         width: 70px; height: 70px;
-        background: linear-gradient(135deg, #38BDF8, #6366F1);
         border-radius: 50%;
         display: flex; align-items: center; justify-content: center;
         font-size: 35px; margin: 0 auto 15px;
-        box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
         animation: pulse 3s infinite;
     }
 
     @keyframes pulse {
-        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4); }
-        70% { transform: scale(1.05); box-shadow: 0 0 0 15px rgba(56, 189, 248, 0); }
-        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+        0% { transform: scale(1); opacity: 1; }
+        70% { transform: scale(1.05); opacity: 0.8; }
+        100% { transform: scale(1); opacity: 1; }
     }
 
     .stButton>button { border-radius: 12px; font-weight: 600; height: 3.5em; width: 100%; border: none; }
@@ -89,9 +86,10 @@ if not st.session_state.auth["logged_in"]:
 
 # --- 4. NAVIGATION ---
 st.markdown(f"### Hello, {st.session_state.auth['name']} ✨")
-main_nav = st.tabs(["🏠 Dashboard", "🛋️ Clara's Couch", "🎮 Games", "🚪 Logout"])
+# RENAMED TABS
+main_nav = st.tabs(["🏠 Cooper's Corner", "🛋️ Clara's Couch", "🎮 Games", "🚪 Logout"])
 
-# --- 5. DASHBOARD (COOPER'S CORNER) ---
+# --- 5. COOPER'S CORNER ---
 with main_nav[0]:
     col1, col2 = st.columns([1, 1.3])
     with col1:
@@ -108,7 +106,7 @@ with main_nav[0]:
     with col2:
         st.markdown(f"""
             <div class="glass-panel">
-                <div class="avatar-pulse">👤</div>
+                <div class="avatar-pulse" style="background: linear-gradient(135deg, #38BDF8, #6366F1);">👤</div>
                 <h3 style='text-align:center; color:#38BDF8; margin-bottom:0;'>Cooper's Corner</h3>
                 <p style='text-align:center; color:#94A3B8; font-size:14px;'>Your personal space for reflection</p>
             </div>
@@ -131,26 +129,44 @@ with main_nav[1]:
         <div class="glass-panel">
             <div class="avatar-pulse" style="background: linear-gradient(135deg, #F472B6, #FB7185);">🧘‍♀️</div>
             <h3 style='text-align:center; color:#F472B6; margin-bottom:0;'>Clara's Couch</h3>
-            <p style='text-align:center; color:#94A3B8; font-size:14px;'>Insights, patterns, and clinical support</p>
+            <p style='text-align:center; color:#94A3B8; font-size:14px;'>Weekly Insights & Clinical Trends</p>
         </div>
     """, unsafe_allow_html=True)
 
     c1, c2 = st.columns([1.5, 1])
+    
     with c1:
         try:
             df_l = conn.read(worksheet="Sheet1", ttl=0)
             df_p = df_l[df_l['CoupleID'].astype(str) == str(st.session_state.auth['cid'])].copy()
             df_p['Timestamp'] = pd.to_datetime(df_p['Timestamp'])
             df_p = df_p.sort_values('Timestamp')
+            
             if not df_p.empty:
+                # LINE CHART
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=df_p['EnergyLog'], fill='tozeroy', line=dict(color='#F472B6', width=4)))
-                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"), height=300)
+                fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=df_p['EnergyLog'], fill='tozeroy', 
+                                         line=dict(color='#F472B6', width=4), name="Energy"))
+                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                                  font=dict(color="white"), height=300, margin=dict(l=0,r=0,t=0,b=0))
                 st.plotly_chart(fig, use_container_width=True)
-        except: st.info("Recording history needed for analytics.")
+                
+                # WEEKLY SUMMARY LOGIC
+                if st.button("✨ Generate Clara's Weekly Insight"):
+                    last_week = df_p[df_p['Timestamp'] > (datetime.now() - timedelta(days=7))]
+                    data_summary = last_week['EnergyLog'].to_list()
+                    
+                    with st.spinner("Analyzing patterns..."):
+                        insight = client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[{"role":"system","content":"You are Clara, a clinical analyst. Summarize the following energy levels (1-11) from the past week into a 3-sentence professional insight for a caregiver. Focus on stability and burnout risk."},
+                                      {"role":"user","content": f"Data: {data_summary}"}]
+                        ).choices[0].message.content
+                        st.info(insight)
+        except: st.info("Recording history needed for Clara to analyze trends.")
 
     with c2:
-        clara_chat = st.container(height=350, border=False)
+        clara_chat = st.container(height=400, border=False)
         with clara_chat:
             for m in st.session_state.clara_logs:
                 with st.chat_message(m["role"], avatar="🧘‍♀️"): st.write(m["content"])
@@ -162,13 +178,11 @@ with main_nav[1]:
 
 # --- 7. GAMES ---
 with main_nav[2]:
+    st.markdown('<div class="portal-card">', unsafe_allow_html=True)
     gt = st.radio("Select Activity", ["Modern Snake", "Memory Match"], horizontal=True)
-    if gt == "Modern Snake":
-        # Snake logic remains as per your building block...
-        st.info("Snake Game loading...")
-    else:
-        # Memory logic remains as per your building block...
-        st.info("Memory Match loading...")
+    st.markdown('</div>', unsafe_allow_html=True)
+    # Your snake/memory logic here
+    st.info(f"{gt} initialized. Play to boost your energy score!")
 
 with main_nav[3]:
     if st.button("Logout"):
