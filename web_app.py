@@ -3,7 +3,52 @@ import pandas as pd
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
-import plotly.graph_objects as go
+import plotly.graph_objects as # --- 8. ADMIN PORTAL ---
+if st.session_state.auth["role"] == "admin":
+    with main_nav[-2]:
+        st.header("🛡️ Admin Chat Explorer")
+        
+        # 1. Fetch Fresh Data
+        logs_df = get_data("ChatLogs")
+        
+        if not logs_df.empty:
+            # 2. Top Level Filters
+            c1, c2, c3 = st.columns([1, 1, 2])
+            with c1: 
+                u_f = st.multiselect("Member ID", options=logs_df['memberid'].unique())
+            with c2: 
+                a_f = st.multiselect("Agent", options=logs_df['agent'].unique())
+            with c3:
+                # NEW: Keyword Search Box
+                search_query = st.text_input("🔍 Search Keywords", placeholder="Type a word (e.g. 'anxious', 'happy', 'help')...").strip().lower()
+
+            # 3. Filtering Logic
+            f_df = logs_df.copy()
+            
+            if u_f: 
+                f_df = f_df[f_df['memberid'].isin(u_f)]
+            if a_f: 
+                f_df = f_df[f_df['agent'].isin(a_f)]
+            
+            # Apply Keyword Search
+            if search_query:
+                # We search the 'content' column and make it case-insensitive
+                f_df = f_df[f_df['content'].astype(str).str.lower().str.contains(search_query)]
+            
+            # 4. Display Results
+            st.markdown(f"**Found {len(f_df)} messages matching your criteria.**")
+            
+            st.dataframe(
+                f_df[['timestamp', 'memberid', 'agent', 'role', 'content']], 
+                use_container_width=True, 
+                hide_index=True
+            )
+            
+            # 5. Export
+            csv = f_df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Export Current View to CSV", data=csv, file_name="filtered_logs.csv", mime="text/csv")
+        else: 
+            st.info("No logs found in the database.")
 
 # --- 1. MOBILE-FIRST CONFIGURATION ---
 st.set_page_config(page_title="Health Bridge", layout="wide", initial_sidebar_state="collapsed")
@@ -175,3 +220,4 @@ if st.session_state.auth['role'] == "admin":
         st.dataframe(df_logs, use_container_width=True)
 
 st.sidebar.button("Logout", on_click=lambda: st.session_state.clear())
+
