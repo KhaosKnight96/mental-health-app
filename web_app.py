@@ -27,22 +27,25 @@ if "chat_log" not in st.session_state: st.session_state.chat_log = []
 if "current_page" not in st.session_state: st.session_state.current_page = "Dashboard"
 
 def get_clean_users():
-    """Fetches real-time data and sanitizes column names."""
+    """Fetches real-time data and handles empty cells (NaNs)."""
     try:
-        # ttl=0 is vital: it tells Streamlit NOT to cache the read
         df = conn.read(worksheet="Users", ttl=0)
         df.columns = [str(c).lower().replace(" ", "").strip() for c in df.columns]
         mapping = {'username': 'Username', 'password': 'Password', 'fullname': 'Fullname', 'highscore': 'HighScore'}
         df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
+        
+        # FIX: Fill empty cells in HighScore with 0 and ensure they are numbers
+        if 'HighScore' in df.columns:
+            df['HighScore'] = pd.to_numeric(df['HighScore'], errors='coerce').fillna(0)
         return df
     except:
         return pd.DataFrame()
 
-# --- 3. PERSISTENT HIGH SCORE SYNC (THE FIX) ---
+# --- 3. PERSISTENT HIGH SCORE SYNC ---
 qp = st.query_params
 if "last_score" in qp and st.session_state.auth.get("logged_in"):
     try:
-        new_s = int(qp["last_score"])
+        new_s = int(float(qp["last_score"])) # Safety: convert to float then int
         udf = get_clean_users()
         if not udf.empty:
             cid_str = str(st.session_state.auth['cid'])
@@ -50,13 +53,11 @@ if "last_score" in qp and st.session_state.auth.get("logged_in"):
             
             if any(user_mask):
                 idx = udf.index[user_mask][0]
-                current_high = pd.to_numeric(udf.at[idx, 'HighScore'], errors='coerce') or 0
+                current_high = int(udf.at[idx, 'HighScore'])
                 
                 if new_s > current_high:
                     udf.at[idx, 'HighScore'] = new_s
-                    # Force update the worksheet
                     conn.update(worksheet="Users", data=udf)
-                    # IMMEDIATELY clear the cache so the next read sees the new score
                     st.cache_data.clear()
                     st.toast(f"🏆 NEW RECORD SAVED: {new_s}!", icon="🔥")
                 else:
@@ -64,7 +65,6 @@ if "last_score" in qp and st.session_state.auth.get("logged_in"):
     except Exception as e:
         st.error(f"Sync error: {e}")
     
-    # Clean URL and refresh UI
     st.query_params.clear()
     st.rerun()
 
@@ -118,10 +118,11 @@ if st.session_state.current_page == "Dashboard":
         pb = 0
         if not udf.empty and 'HighScore' in udf.columns:
             row = udf[udf['Username'].astype(str) == str(cid)]
-            if not row.empty: pb = pd.to_numeric(row['HighScore'].values[0], errors='coerce') or 0
-        st.markdown(f'<div class="portal-card"><h3 style="color:#FFD700;">🏆 Snake Record: {int(pb)}</h3></div>', unsafe_allow_html=True)
+            if not row.empty:
+                # FIX: Convert to int safely
+                pb = int(row['HighScore'].values[0])
+        st.markdown(f'<div class="portal-card"><h3 style="color:#FFD700;">🏆 Snake Record: {pb}</h3></div>', unsafe_allow_html=True)
         
-        # Energy Log
         st.markdown('<div class="portal-card"><h3>✨ Energy Log</h3>', unsafe_allow_html=True)
         vibe = st.select_slider("Vibe:", options=["Resting", "Low", "Steady", "Good", "Active", "Vibrant", "Radiant"], value="Steady")
         if st.button("Log Energy", use_container_width=True):
@@ -131,6 +132,7 @@ if st.session_state.current_page == "Dashboard":
             conn.update(worksheet="Sheet1", data=pd.concat([df, new_row]))
             st.balloons()
         st.markdown('</div>', unsafe_allow_html=True)
+
     with col2:
         st.markdown('<div class="portal-card"><h3>🤖 Cooper AI</h3>', unsafe_allow_html=True)
         chat_box = st.container(height=350)
