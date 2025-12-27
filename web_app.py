@@ -75,107 +75,54 @@ if not st.session_state.auth["logged_in"]:
             else: st.error("Access Denied")
     st.stop()
 
-# --- 3. THE FINAL OVERLAY ROLE SELECTION ---
+# --- 3. BULLETPROOF ROLE SELECTION ---
 if st.session_state.auth["role"] is None:
     st.write("##")
-    st.markdown("<h1 style='text-align: center; color: white;'>Select Your Portal</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: white;'>Welcome to Health Bridge</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #94A3B8;'>Please choose your portal to continue</p>", unsafe_allow_html=True)
     st.write("##")
-    
+
+    # This CSS makes the radio buttons look like big, clickable tiles
     st.markdown("""
     <style>
-        /* This targets the Streamlit container specifically to prevent "ghost" spacing */
-        [data-testid="stVerticalBlock"] > div:has(div.role-card-wrapper) {
-            gap: 0px;
-        }
-
-        .role-card-wrapper {
-            position: relative;
-            height: 350px;
-            width: 100%;
-            margin-bottom: 20px;
-        }
-
-        /* The Visual Card */
-        .role-card-visual {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
+        div[data-testid="stHorizontalBlock"] {
             background: #1E293B;
-            border: 2px solid #334155;
-            border-radius: 24px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
             padding: 20px;
-            z-index: 1; /* Sits behind the button */
-            transition: all 0.3s ease;
+            border-radius: 20px;
+            border: 1px solid #334155;
         }
-
-        /* The Streamlit Button Wrapper */
-        /* We target the div that Streamlit puts the button inside */
-        .role-card-wrapper .stButton {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 10; /* Sits on top of everything */
+        .stRadio [data-testid="stWidgetLabel"] p {
+            font-size: 20px !important;
+            font-weight: bold !important;
+            color: #38BDF8 !important;
         }
-
-        /* The Actual Button Element */
-        .role-card-wrapper .stButton button {
-            width: 100% !important;
-            height: 350px !important;
-            background-color: transparent !important;
-            color: transparent !important;
-            border: none !important;
-            font-size: 0px !important;
-            box-shadow: none !important;
-        }
-
-        /* Hover effect: We trigger this when the mouse is anywhere in the wrapper */
-        .role-card-wrapper:hover .role-card-visual {
-            border-color: #38BDF8;
-            transform: translateY(-10px);
-            background: #263345;
-            box-shadow: 0 15px 30px rgba(0,0,0,0.5);
-        }
-        
-        .role-icon { font-size: 60px; margin-bottom: 10px; }
-        .role-label { font-size: 28px; font-weight: bold; color: white; margin-bottom: 5px; }
-        .role-desc { font-size: 14px; color: #94A3B8; text-align: center; }
     </style>
     """, unsafe_allow_html=True)
 
-    col1, col2, col3, col4, col5 = st.columns([1, 3, 0.5, 3, 1])
+    _, col, _ = st.columns([1, 2, 1])
     
-    with col2:
-        # We wrap both the HTML and the Button in one named div
-        st.markdown('<div class="role-card-wrapper">', unsafe_allow_html=True)
-        st.markdown(f"""
-                <div class="role-card-visual">
-                    <div class="role-icon">👤</div>
-                    <div class="role-label">Patient</div>
-                    <div class="role-desc">Log energy, chat with Cooper, and visit the Zen Zone.</div>
-                </div>
-        """, unsafe_allow_html=True)
-        if st.button("p_btn", key="select_patient"):
-            st.session_state.auth["role"] = "patient"
+    with col:
+        # We use a radio with a horizontal display to make it look like a switcher
+        choice = st.radio(
+            "Select Your Identity:",
+            ["👤 Patient", "👩‍⚕️ Caregiver"],
+            horizontal=True,
+            help="Choose Patient to log energy and play games. Choose Caregiver to view trends."
+        )
+        
+        st.write("---")
+        
+        # Display a description based on choice
+        if "Patient" in choice:
+            st.info("**Patient View:** Access Cooper AI, your energy tracker, and the Zen Zone.")
+        else:
+            st.info("**Caregiver View:** Access Clara AI, patient analytics, and health logs.")
+            
+        st.write("##")
+        
+        if st.button("Enter Dashboard →", use_container_width=True, type="primary"):
+            st.session_state.auth["role"] = "patient" if "Patient" in choice else "caregiver"
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with col4:
-        st.markdown('<div class="role-card-wrapper">', unsafe_allow_html=True)
-        st.markdown(f"""
-                <div class="role-card-visual">
-                    <div class="role-icon">👩‍⚕️</div>
-                    <div class="role-label">Caregiver</div>
-                    <div class="role-desc">Analyze patient trends with Clara and view health logs.</div>
-                </div>
-        """, unsafe_allow_html=True)
-        if st.button("c_btn", key="select_caregiver"):
-            st.session_state.auth["role"] = "caregiver"
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
             
     st.stop()
 # --- 4. SIDEBAR NAVIGATION ---
@@ -251,6 +198,7 @@ elif mode == "Analytics":
 elif mode == "Memory Match":
     st.title("🧩 Memory Match")
     st.info("The 3D memory game logic is ready to be pasted here.")
+
 
 
 
