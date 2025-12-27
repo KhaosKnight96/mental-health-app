@@ -29,9 +29,12 @@ if "cooper_logs" not in st.session_state: st.session_state.cooper_logs = []
 if "clara_logs" not in st.session_state: st.session_state.clara_logs = []
 
 def get_data(worksheet_name="Users"):
-    df = conn.read(worksheet=worksheet_name, ttl=0)
-    df.columns = [str(c).strip() for c in df.columns]
-    return df
+    try:
+        df = conn.read(worksheet=worksheet_name, ttl=0)
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
+    except:
+        return pd.DataFrame()
 
 # --- 3. LOGIN GATE ---
 if not st.session_state.auth["logged_in"]:
@@ -43,11 +46,13 @@ if not st.session_state.auth["logged_in"]:
             p = st.text_input("Password", type="password")
             if st.button("Sign In", type="primary"):
                 df = get_data("Users")
-                m = df[(df['Username'].astype(str) == u) & (df['Password'].astype(str) == p)]
-                if not m.empty:
-                    st.session_state.auth.update({"logged_in": True, "cid": u, "name": m.iloc[0]['Fullname']})
-                    st.rerun()
-                else: st.error("Access Denied.")
+                if not df.empty:
+                    m = df[(df['Username'].astype(str) == u) & (df['Password'].astype(str) == p)]
+                    if not m.empty:
+                        st.session_state.auth.update({"logged_in": True, "cid": u, "name": m.iloc[0]['Fullname']})
+                        st.rerun()
+                    else: st.error("Access Denied.")
+                else: st.error("Database connection error.")
     st.stop()
 
 # --- 4. NAVIGATION ---
@@ -91,29 +96,40 @@ if nav == "Dashboard":
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 6. CAREGIVER SECTION ---
+# --- 6. CAREGIVER SECTION (REWORKED) ---
 elif nav == "Caregiver Insights":
-    st.title("📊 Clara Analysis")
-    df_users = get_data("Users")
-    user_row = df_users[df_users['Username'].astype(str) == str(st.session_state.auth['cid'])]
-    col_data, col_clara = st.columns([1, 1.5])
-    with col_data:
-        st.markdown('<div class="portal-card"><h3>📋 User Profile</h3>', unsafe_allow_html=True)
-        if not user_row.empty: st.table(user_row.drop(columns=['Password', 'Username']).T)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with col_clara:
-        st.markdown('<div class="portal-card"><h3>🤖 Clara Analyst</h3>', unsafe_allow_html=True)
-        container = st.container(height=400)
-        for m in st.session_state.clara_logs:
-            with container.chat_message(m["role"]): st.write(m["content"])
-        if p := st.chat_input("Analyze trends..."):
-            st.session_state.clara_logs.append({"role": "user", "content": p})
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara, a precise analyst."}]+st.session_state.clara_logs[-5:]).choices[0].message.content
-            st.session_state.clara_logs.append({"role": "assistant", "content": res})
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.title("📊 Clara Caregiver Portal")
+    
+    # Full width Clara interface for better focus
+    st.markdown('<div class="portal-card"><h3>🤖 Clara Data Analyst</h3><p style="color:#94A3B8;">Clara has access to current energy logs and activity history to help you identify patterns.</p>', unsafe_allow_html=True)
+    
+    container = st.container(height=500)
+    for m in st.session_state.clara_logs:
+        with container.chat_message(m["role"]): st.write(m["content"])
+    
+    if p := st.chat_input("Ask Clara about recent energy trends..."):
+        st.session_state.clara_logs.append({"role": "user", "content": p})
+        
+        # Pull recent data for context if Clara needs it
+        try:
+            recent_logs = conn.read(worksheet="Sheet1", ttl=0).tail(10).to_string()
+            context = f"Here is the recent energy data for context: {recent_logs}"
+        except:
+            context = "No energy log data available yet."
 
-# --- 7. GAMES SECTION (TOMATO SNAKE) ---
+        res = client.chat.completions.create(
+            model="llama-3.3-70b-versatile", 
+            messages=[
+                {"role":"system","content":"You are Clara, a precise and empathetic clinical data analyst. Your goal is to help caregivers understand the patient's energy trends and mood patterns based on provided logs."},
+                {"role":"system", "content": context}
+            ] + st.session_state.clara_logs[-5:]
+        ).choices[0].message.content
+        
+        st.session_state.clara_logs.append({"role": "assistant", "content": res})
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# --- 7. GAMES SECTION ---
 elif nav == "Games":
     if st.button("⬅️ Back to Dashboard"): st.rerun()
     game_type = st.radio("Select Game", ["Zen Snake", "Memory Match"], horizontal=True)
@@ -150,27 +166,15 @@ elif nav == "Games":
 
         function draw() {
             ctx.fillStyle="black"; ctx.fillRect(0,0,300,300);
-            
-            // Draw Tomato Food
-            ctx.font = "18px serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
+            ctx.font = "18px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
             ctx.fillText("🍅", food.x + box/2, food.y + box/2);
-
-            // Draw Snake
-            snake.forEach((p,i)=>{ 
-                ctx.fillStyle=i==0?"#38BDF8":"white"; 
-                ctx.fillRect(p.x,p.y,box-1,box-1); 
-            });
-
+            snake.forEach((p,i)=>{ ctx.fillStyle=i==0?"#38BDF8":"white"; ctx.fillRect(p.x,p.y,box-1,box-1); });
             let hX=snake[0].x, hY=snake[0].y;
             if(d=="LEFT") hX-=box; if(d=="UP") hY-=box; if(d=="RIGHT") hX+=box; if(d=="DOWN") hY+=box;
-
             if(hX==food.x && hY==food.y){ 
                 score++; document.getElementById("st").innerText="Score: "+score; 
                 food={x:Math.floor(Math.random()*14+1)*box, y:Math.floor(Math.random()*14+1)*box};
             } else if(d) snake.pop();
-
             let h={x:hX, y:hY};
             if(hX<0||hX>=300||hY<0||hY>=300||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){
                 ctx.fillStyle="white"; ctx.font="bold 24px Arial"; ctx.fillText("GAME OVER", 150, 150);
