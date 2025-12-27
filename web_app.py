@@ -36,14 +36,17 @@ def get_data(worksheet_name="Users"):
     except:
         return pd.DataFrame()
 
-# --- 3. LOGIN GATE ---
+# --- 3. LOGIN & SIGNUP GATE ---
 if not st.session_state.auth["logged_in"]:
     st.markdown("<h1 style='text-align:center; margin-top:50px;'>🧠 Health Bridge</h1>", unsafe_allow_html=True)
-    with st.container():
+    
+    tab_login, tab_signup = st.tabs(["🔐 Sign In", "📝 Create Account"])
+    
+    with tab_login:
         _, login_col, _ = st.columns([1, 2, 1])
         with login_col:
-            u = st.text_input("Couple ID")
-            p = st.text_input("Password", type="password")
+            u = st.text_input("Couple ID", key="l_u")
+            p = st.text_input("Password", type="password", key="l_p")
             if st.button("Sign In", type="primary"):
                 df = get_data("Users")
                 if not df.empty:
@@ -52,7 +55,25 @@ if not st.session_state.auth["logged_in"]:
                         st.session_state.auth.update({"logged_in": True, "cid": u, "name": m.iloc[0]['Fullname']})
                         st.rerun()
                     else: st.error("Access Denied.")
-                else: st.error("Database connection error.")
+                else: st.error("Database error.")
+
+    with tab_signup:
+        _, sign_col, _ = st.columns([1, 2, 1])
+        with sign_col:
+            new_name = st.text_input("Full Name")
+            new_cid = st.text_input("Choose Couple ID")
+            new_pwd = st.text_input("Choose Password", type="password")
+            if st.button("Create Account"):
+                df = get_data("Users")
+                if not df.empty and new_cid in df['Username'].astype(str).values:
+                    st.error("This ID is already taken.")
+                elif new_name and new_cid and new_pwd:
+                    new_user = pd.DataFrame([{"Fullname": new_name, "Username": new_cid, "Password": new_pwd}])
+                    updated_users = pd.concat([df, new_user], ignore_index=True)
+                    conn.update(worksheet="Users", data=updated_users)
+                    st.success("Account created! Please switch to Sign In tab.")
+                else:
+                    st.warning("Please fill in all fields.")
     st.stop()
 
 # --- 4. NAVIGATION ---
@@ -96,31 +117,28 @@ if nav == "Dashboard":
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 6. CAREGIVER SECTION (CHART ADDED) ---
+# --- 6. CAREGIVER SECTION (CHART + GOAL LINE) ---
 elif nav == "Caregiver Insights":
     st.title("📊 Energy Analytics")
     
-    # 1. Fetch and process data for the Chart
     try:
         df_logs = conn.read(worksheet="Sheet1", ttl=0)
         df_logs.columns = [str(c).strip() for c in df_logs.columns]
-        
-        # Filter for current couple and format time
         df_plot = df_logs[df_logs['CoupleID'].astype(str) == str(st.session_state.auth['cid'])].copy()
         df_plot['Timestamp'] = pd.to_datetime(df_plot['Timestamp'])
         df_plot = df_plot.sort_values('Timestamp')
 
         if not df_plot.empty:
-            st.markdown('<div class="portal-card"><h3>📉 Energy Trends Over Time</h3>', unsafe_allow_html=True)
-            # Simple line chart showing EnergyLog values (1-11)
-            st.line_chart(df_plot.set_index('Timestamp')['EnergyLog'])
+            st.markdown('<div class="portal-card"><h3>📉 Energy Trends vs. Neutral Baseline</h3>', unsafe_allow_html=True)
+            # Add Neutral Goal Line at 6
+            df_plot['Neutral Baseline'] = 6
+            st.line_chart(df_plot.set_index('Timestamp')[['EnergyLog', 'Neutral Baseline']], color=["#38BDF8", "#F87171"])
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.info("No energy data recorded yet for this ID.")
+            st.info("No energy data recorded yet.")
     except Exception as e:
-        st.warning(f"Could not load chart: {e}")
+        st.warning(f"Chart Load Error: {e}")
 
-    # 2. Clara Interface
     st.markdown('<div class="portal-card"><h3>🤖 Clara Analyst</h3>', unsafe_allow_html=True)
     container = st.container(height=400)
     for m in st.session_state.clara_logs:
@@ -128,17 +146,11 @@ elif nav == "Caregiver Insights":
     
     if p := st.chat_input("Analyze these trends..."):
         st.session_state.clara_logs.append({"role": "user", "content": p})
-        
-        # Context for Clara
-        log_context = df_plot.tail(10).to_string() if 'df_plot' in locals() else "No data"
-        
+        log_context = df_plot.tail(10).to_string() if 'df_plot' in locals() else ""
         res = client.chat.completions.create(
             model="llama-3.3-70b-versatile", 
-            messages=[
-                {"role":"system","content":"You are Clara, a clinical analyst. Use the following energy log data to answer questions: " + log_context}
-            ] + st.session_state.clara_logs[-5:]
+            messages=[{"role":"system","content":"Analyst Clara. Context: " + log_context}] + st.session_state.clara_logs[-5:]
         ).choices[0].message.content
-        
         st.session_state.clara_logs.append({"role": "assistant", "content": res})
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
@@ -159,48 +171,62 @@ elif nav == "Games":
         <script>
         const canvas=document.getElementById("s"), ctx=canvas.getContext("2d"), box=20;
         let score=0, d, snake=[{x:7*box, y:7*box}], food={x:Math.floor(Math.random()*14+1)*box, y:Math.floor(Math.random()*14+1)*box};
-
-        window.addEventListener("keydown", e => {
-            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
-            if(e.code=="ArrowLeft" && d!="RIGHT") d="LEFT";
-            if(e.code=="ArrowUp" && d!="DOWN") d="UP";
-            if(e.code=="ArrowRight" && d!="LEFT") d="RIGHT";
-            if(e.code=="ArrowDown" && d!="UP") d="DOWN";
-        });
-
-        const mc = new Hammer(canvas);
-        mc.get('swipe').set({ direction: Hammer.DIRECTION_ALL });
-        mc.on("swipeleft swipeup swiperight swipedown", e => {
-            e.preventDefault();
-            if(e.type=="swipeleft" && d!="RIGHT") d="LEFT";
-            if(e.type=="swipeup" && d!="DOWN") d="UP";
-            if(e.type=="swiperight" && d!="LEFT") d="RIGHT";
-            if(e.type=="swipedown" && d!="UP") d="DOWN";
-        });
-
-        function draw() {
-            ctx.fillStyle="black"; ctx.fillRect(0,0,300,300);
+        window.addEventListener("keydown", e => { if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
+            if(e.code=="ArrowLeft" && d!="RIGHT") d="LEFT"; if(e.code=="ArrowUp" && d!="DOWN") d="UP";
+            if(e.code=="ArrowRight" && d!="LEFT") d="RIGHT"; if(e.code=="ArrowDown" && d!="UP") d="DOWN"; });
+        const mc = new Hammer(canvas); mc.get('swipe').set({ direction: Hammer.DIRECTION_ALL });
+        mc.on("swipeleft swipeup swiperight swipedown", e => { e.preventDefault();
+            if(e.type=="swipeleft" && d!="RIGHT") d="LEFT"; if(e.type=="swipeup" && d!="DOWN") d="UP";
+            if(e.type=="swiperight" && d!="LEFT") d="RIGHT"; if(e.type=="swipedown" && d!="UP") d="DOWN"; });
+        function draw() { ctx.fillStyle="black"; ctx.fillRect(0,0,300,300);
             ctx.font = "18px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
             ctx.fillText("🍅", food.x + box/2, food.y + box/2);
             snake.forEach((p,i)=>{ ctx.fillStyle=i==0?"#38BDF8":"white"; ctx.fillRect(p.x,p.y,box-1,box-1); });
             let hX=snake[0].x, hY=snake[0].y;
             if(d=="LEFT") hX-=box; if(d=="UP") hY-=box; if(d=="RIGHT") hX+=box; if(d=="DOWN") hY+=box;
-            if(hX==food.x && hY==food.y){ 
-                score++; document.getElementById("st").innerText="Score: "+score; 
+            if(hX==food.x && hY==food.y){ score++; document.getElementById("st").innerText="Score: "+score; 
                 food={x:Math.floor(Math.random()*14+1)*box, y:Math.floor(Math.random()*14+1)*box};
             } else if(d) snake.pop();
             let h={x:hX, y:hY};
             if(hX<0||hX>=300||hY<0||hY>=300||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){
-                ctx.fillStyle="white"; ctx.font="bold 24px Arial"; ctx.fillText("GAME OVER", 150, 150);
-                clearInterval(game);
-            }
-            if(d) snake.unshift(h);
-        }
+                ctx.fillStyle="white"; ctx.font="bold 24px Arial"; ctx.fillText("GAME OVER", 150, 150); clearInterval(game); }
+            if(d) snake.unshift(h); }
         let game = setInterval(draw, 140);
         </script>
         """
         st.components.v1.html(SNAKE_HTML, height=520)
 
     elif game_type == "Memory Match":
-        # (Memory Match code remains the same as previous)
-        st.write("Memory Match Game Loading...")
+        MEMORY_HTML = """
+        <style>
+            .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; margin: auto; }
+            .card { height: 75px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }
+            .card.flipped { transform: rotateY(180deg); }
+            .face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #38BDF8; }
+            .front { background: #1E293B; }
+            .back { background: #334155; transform: rotateY(180deg); color: white; }
+        </style>
+        <div class="grid" id="g"></div>
+        <button onclick="location.reload()" style="width:100%; max-width:320px; display:block; margin:20px auto; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold;">🔄 New Game</button>
+        <script>
+            const icons = ['🍎','🍎','💎','💎','🌟','🌟','🚀','🚀','🌈','🌈','🔥','🔥','🍀','🍀','🎁','🎁'];
+            let shuffled = icons.sort(() => 0.5 - Math.random());
+            let flipped = [], lock = false;
+            const board = document.getElementById('g');
+            shuffled.forEach(icon => {
+                const card = document.createElement('div'); card.className = 'card';
+                card.innerHTML = `<div class="face front"></div><div class="face back">${icon}</div>`;
+                card.dataset.icon = icon;
+                card.onclick = function() {
+                    if(lock || this.classList.contains('flipped')) return;
+                    this.classList.add('flipped'); flipped.push(this);
+                    if(flipped.length === 2) {
+                        lock = true;
+                        if(flipped[0].dataset.icon === flipped[1].dataset.icon) { flipped = []; lock = false; }
+                        else { setTimeout(() => { flipped.forEach(c => c.classList.remove('flipped')); flipped = []; lock = false; }, 800); }
+                    }
+                }; board.appendChild(card);
+            });
+        </script>
+        """
+        st.components.v1.html(MEMORY_HTML, height=500)
