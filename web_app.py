@@ -5,12 +5,13 @@ from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 
 # --- 1. CONFIG & MOBILE OPTIMIZATION ---
-st.set_page_config(page_title="Health Bridge", layout="wide", initial_sidebar_state="collapsed")
+# Changed initial_sidebar_state to "expanded" to ensure you don't lose it
+st.set_page_config(page_title="Health Bridge", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
     .stApp { background-color: #0F172A; color: #F8FAFC; }
-    [data-testid="stSidebar"] { background-color: #1E293B; border-right: 1px solid #334155; }
+    [data-testid="stSidebar"] { background-color: #1E293B; border-right: 1px solid #334155; min-width: 250px !important; }
     .portal-card { background: #1E293B; padding: 25px; border-radius: 20px; border: 1px solid #334155; margin-bottom: 20px; }
     .stButton>button { border-radius: 12px; font-weight: 600; height: 3.5em; width: 100%; border: none; }
     .stSlider [data-baseweb="slider"] div { background-color: #38BDF8; }
@@ -76,12 +77,15 @@ if not st.session_state.auth["logged_in"]:
                     st.warning("Please fill in all fields.")
     st.stop()
 
-# --- 4. NAVIGATION ---
+# --- 4. NAVIGATION (SIDEBAR) ---
+# Ensuring this is always rendered after login
 with st.sidebar:
-    st.title("Bridge Menu")
+    st.title("🌉 Bridge Menu")
+    st.markdown(f"**Logged in as:** {st.session_state.auth['name']}")
     nav = st.selectbox("Navigation", ["Dashboard", "Caregiver Insights", "Games"])
+    st.divider()
     if st.button("Logout"):
-        st.session_state.auth = {"logged_in": False, "cid": None}
+        st.session_state.auth = {"logged_in": False, "cid": None, "name": None}
         st.rerun()
 
 # --- 5. DASHBOARD ---
@@ -117,7 +121,7 @@ if nav == "Dashboard":
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 6. CAREGIVER SECTION (CHART + GOAL LINE) ---
+# --- 6. CAREGIVER SECTION ---
 elif nav == "Caregiver Insights":
     st.title("📊 Energy Analytics")
     
@@ -130,7 +134,6 @@ elif nav == "Caregiver Insights":
 
         if not df_plot.empty:
             st.markdown('<div class="portal-card"><h3>📉 Energy Trends vs. Neutral Baseline</h3>', unsafe_allow_html=True)
-            # Add Neutral Goal Line at 6
             df_plot['Neutral Baseline'] = 6
             st.line_chart(df_plot.set_index('Timestamp')[['EnergyLog', 'Neutral Baseline']], color=["#38BDF8", "#F87171"])
             st.markdown('</div>', unsafe_allow_html=True)
@@ -157,7 +160,6 @@ elif nav == "Caregiver Insights":
 
 # --- 7. GAMES SECTION ---
 elif nav == "Games":
-    if st.button("⬅️ Back to Dashboard"): st.rerun()
     game_type = st.radio("Select Game", ["Zen Snake", "Memory Match"], horizontal=True)
 
     if game_type == "Zen Snake":
