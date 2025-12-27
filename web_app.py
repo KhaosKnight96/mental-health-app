@@ -11,38 +11,41 @@ st.set_page_config(page_title="Health Bridge Portal", layout="wide")
 
 st.markdown("""
 <style>
-    /* Global Theme */
+    /* Global Background */
     .stApp { background-color: #0F172A !important; color: #F8FAFC !important; }
     [data-testid="stSidebar"] { background-color: #1E293B !important; border-right: 1px solid #334155; }
     
-    /* Role Card Styling */
-    .role-card {
+    /* Dedicated Role Button Cards */
+    .role-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
         background: #1E293B;
-        padding: 3rem;
-        border-radius: 24px;
+        padding: 40px;
+        border-radius: 20px;
         border: 2px solid #334155;
-        text-align: center;
-        transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        cursor: pointer;
+        transition: 0.3s;
+        margin-bottom: 20px;
     }
-    .role-card:hover {
+    .role-container:hover {
         border-color: #38BDF8;
-        transform: translateY(-8px);
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        background: #263345;
     }
     
-    /* Standard Portal Card */
+    /* Card Text */
+    .role-icon { font-size: 50px; margin-bottom: 10px; }
+    .role-title { font-size: 24px; font-weight: bold; color: #38BDF8 !important; }
+    .role-desc { font-size: 16px; color: #94A3B8 !important; margin-bottom: 20px; }
+
+    /* General UI */
     .portal-card {
         background: rgba(30, 41, 59, 0.7);
-        padding: 1.5rem;
+        padding: 20px;
         border-radius: 15px;
         border-left: 5px solid #38BDF8;
-        margin-bottom: 1rem;
+        margin-bottom: 20px;
     }
-
-    /* Text Color Fixes */
-    h1, h2, h3, p, label { color: #F8FAFC !important; }
-    .stSelectbox label { color: #F8FAFC !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -54,7 +57,7 @@ if "clara_history" not in st.session_state: st.session_state.clara_history = []
 conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# --- 2. AUTHENTICATION ---
+# --- 2. LOGIN PAGE ---
 if not st.session_state.auth["logged_in"]:
     _, col, _ = st.columns([1, 1.2, 1])
     with col:
@@ -69,27 +72,32 @@ if not st.session_state.auth["logged_in"]:
             if not m.empty:
                 st.session_state.auth.update({"logged_in": True, "cid": u_l, "name": m.iloc[0]['Fullname']})
                 st.rerun()
-            else: st.error("Access Denied: Check ID/Password")
+            else: st.error("Access Denied")
     st.stop()
 
-# --- 3. BEAUTIFIED ROLE SELECTION ---
+# --- 3. REFINED ROLE SELECTION (ONE BUTTON PER ROLE) ---
 if st.session_state.auth["role"] is None:
     st.write("##")
-    st.markdown(f"<h1 style='text-align: center; font-size: 3rem;'>Welcome, {st.session_state.auth['name']}</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; opacity: 0.8;'>Choose your perspective for this session</p>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center;'>Welcome back, {st.session_state.auth['name']}</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; font-size: 18px;'>Please select your portal for this session:</p>", unsafe_allow_html=True)
     st.write("##")
     
-    c1, c2, c3 = st.columns([1, 4, 1])
-    with c2:
-        sub1, sub2 = st.columns(2)
-        with sub1:
-            st.markdown('<div class="role-card"><h1>👤</h1><h2>Patient</h2><p>View support and energy logs</p></div>', unsafe_allow_html=True)
-            if st.button("Enter as Patient", use_container_width=True):
-                st.session_state.auth["role"] = "patient"; st.rerun()
-        with sub2:
-            st.markdown('<div class="role-card"><h1>👩‍⚕️</h1><h2>Caregiver</h2><p>Analyze data and trends</p></div>', unsafe_allow_html=True)
-            if st.button("Enter as Caregiver", use_container_width=True):
-                st.session_state.auth["role"] = "caregiver"; st.rerun()
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        # Patient Option
+        st.markdown("""<div class="role-container"><div class="role-icon">👤</div><div class="role-title">Patient Portal</div><div class="role-desc">Chat with Cooper, log your energy, and play games.</div></div>""", unsafe_allow_html=True)
+        if st.button("Enter as Patient", use_container_width=True, key="btn_p"):
+            st.session_state.auth["role"] = "patient"
+            st.rerun()
+            
+        st.write("##") # Space between buttons
+        
+        # Caregiver Option
+        st.markdown("""<div class="role-container"><div class="role-icon">👩‍⚕️</div><div class="role-title">Caregiver Command</div><div class="role-desc">Consult Clara and analyze patient health trends.</div></div>""", unsafe_allow_html=True)
+        if st.button("Enter as Caregiver", use_container_width=True, key="btn_c"):
+            st.session_state.auth["role"] = "caregiver"
+            st.rerun()
     st.stop()
 
 # --- 4. SIDEBAR NAVIGATION ---
@@ -99,39 +107,40 @@ with st.sidebar:
     st.title("🌉 Health Bridge")
     st.write(f"**{cname}**")
     
-    # Primary Navigation
-    if role == "patient":
-        mode = st.radio("Main Menu", ["Dashboard", "Zen Zone"])
+    # Unified Zen Zone Dropdown
+    with st.expander("🧩 Zen Zone (Games)", expanded=False):
+        game_select = st.selectbox("Choose Activity", ["--- Choose ---", "Memory Match", "Snake", "Breathing Space"])
+    
+    st.divider()
+    # If a game is selected, it overrides the dashboard view
+    if game_select != "--- Choose ---":
+        mode = game_select
     else:
-        mode = st.radio("Main Menu", ["Analytics Center", "Zen Zone"])
+        mode = "Dashboard" if role == "patient" else "Analytics"
 
-    st.write("##")
-    # Quick Action Buttons
+    # Bottom Actions
     if st.button("🔄 Switch Mode", use_container_width=True):
         st.session_state.auth["role"] = None; st.rerun()
     if st.button("🚪 Logout", use_container_width=True):
         st.session_state.auth = {"logged_in": False, "role": None}
         st.rerun()
 
-# --- 5. PAGE CONTENT ---
+# --- 5. DASHBOARD LOGIC (COOPER, CLARA, & GRAPHS) ---
 
 if mode == "Dashboard":
-    st.title("👋 Cooper Support")
+    st.title("👋 Cooper Patient Portal")
     col1, col2 = st.columns([1, 2])
-    
     with col1:
         st.markdown('<div class="portal-card"><h3>Energy Check</h3></div>', unsafe_allow_html=True)
-        score = st.select_slider("How are you feeling?", options=range(1,12), value=6)
-        if st.button("Save Entry", use_container_width=True):
+        score = st.select_slider("Energy (1-11)", options=range(1,12), value=6)
+        if st.button("Log Energy", use_container_width=True):
             df = conn.read(worksheet="Sheet1", ttl=0)
             new = pd.DataFrame([{"Date": datetime.date.today().strftime("%Y-%m-%d"), "Energy": score, "CoupleID": cid}])
             conn.update(worksheet="Sheet1", data=pd.concat([df, new], ignore_index=True))
-            st.success("Logged!")
-
+            st.success("Saved!")
     with col2:
         for m in st.session_state.chat_log:
             with st.chat_message("user" if m["type"]=="P" else "assistant"): st.write(m["msg"])
-        
         p_in = st.chat_input("Message Cooper...")
         if p_in:
             st.session_state.chat_log.append({"type": "P", "msg": p_in})
@@ -139,21 +148,20 @@ if mode == "Dashboard":
             res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs).choices[0].message.content
             st.session_state.chat_log.append({"type": "C", "msg": res}); st.rerun()
 
-elif mode == "Analytics Center":
-    st.title("👩‍⚕️ Clara Command")
+elif mode == "Analytics":
+    st.title("👩‍⚕️ Clara Caregiver Command")
     try:
         all_d = conn.read(worksheet="Sheet1", ttl=0)
         f_data = all_d[all_d['CoupleID'].astype(str) == str(cid)]
         if not f_data.empty: 
-            st.markdown('<div class="portal-card"><h3>Patient Energy Trends</h3></div>', unsafe_allow_html=True)
+            st.markdown('<div class="portal-card"><h3>Health History</h3></div>', unsafe_allow_html=True)
             st.line_chart(f_data.set_index("Date")['Energy'])
-    except: st.info("No data available yet.")
-
+    except: pass
+    
     st.divider()
     for m in st.session_state.clara_history:
         with st.chat_message(m["role"]): st.write(m["content"])
-        
-    c_in = st.chat_input("Consult Clara...")
+    c_in = st.chat_input("Ask Clara...")
     if c_in:
         prompt = f"You are Clara. Data: {f_data.tail(5).to_string()}"
         msgs = [{"role":"system", "content": prompt}] + st.session_state.clara_history[-4:] + [{"role": "user", "content": c_in}]
@@ -161,12 +169,7 @@ elif mode == "Analytics Center":
         st.session_state.clara_history.append({"role": "user", "content": c_in})
         st.session_state.clara_history.append({"role": "assistant", "content": res}); st.rerun()
 
-elif mode == "Zen Zone":
-    st.title("🧩 Zen Zone")
-    game = st.selectbox("Select Activity", ["Memory Match", "Snake", "Breathing Space"])
-    
-    if game == "Memory Match":
-        # Insert the 3D Javascript code here (as per your building block)
-        st.info("Launch 3D Memory Card Game...")
-    elif game == "Snake":
-        st.info("Launch Snake Arcade...")
+# Zen Zone Placeholders
+elif mode == "Memory Match":
+    st.title("🧩 Memory Match")
+    st.info("The 3D memory game logic is ready to be pasted here.")
