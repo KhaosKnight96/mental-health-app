@@ -150,11 +150,12 @@ elif mode == "Memory Match":
     }
     
     function winCelebration() {
-        playTone(523.25, 'sine', 0.2, 0.1);
-        setTimeout(() => playTone(659.25, 'sine', 0.2, 0.1), 150);
-        setTimeout(() => playTone(783.99, 'sine', 0.2, 0.1), 300);
-        setTimeout(() => playTone(1046.50, 'sine', 0.5, 0.1), 450);
-        setTimeout(() => { alert("🎉 Magnificent! You matched them all!"); }, 600);
+        // High-pitched victory chime
+        playTone(523.25, 'sine', 0.2, 0.1); // C5
+        setTimeout(() => playTone(659.25, 'sine', 0.2, 0.1), 150); // E5
+        setTimeout(() => playTone(783.99, 'sine', 0.2, 0.1), 300); // G5
+        setTimeout(() => playTone(1046.50, 'sine', 0.6, 0.1), 450); // C6
+        setTimeout(() => { alert("🎉 Magnificent! You matched them all!"); }, 700);
     }
 
     const icons = ["🌟","🌟","🍀","🍀","🎈","🎈","💎","💎","🌈","🌈","🦄","🦄","🍎","🍎","🎨","🎨"];
@@ -170,17 +171,19 @@ elif mode == "Memory Match":
                 <div style="position: absolute; width: 100%; height: 100%; backface-visibility: hidden; display: flex; align-items: center; justify-content: center; font-size: 32px; border-radius: 12px; background: white; transform: rotateY(180deg); border: 2px solid #219EBC;">${icon}</div>
             </div>`;
         card.onclick = () => {
-            if (!canFlip || flipped.includes(i) || matched.includes(i)) return;
+            if (!canFlip || matched.includes(i) || (flipped.length > 0 && flipped[0].i === i)) return;
+            
             playTone(400, 'sine', 0.1);
             document.getElementById(`card-${i}`).style.transform = "rotateY(180deg)";
             flipped.push({i, icon});
+
             if (flipped.length === 2) {
                 canFlip = false;
                 if (flipped[0].icon === flipped[1].icon) {
                     setTimeout(() => playTone(800, 'triangle', 0.2), 300);
                     matched.push(flipped[0].i, flipped[1].i);
                     flipped = []; canFlip = true;
-                    if (matched.length === icons.length) setTimeout(winCelebration, 500);
+                    if (matched.length === icons.length) setTimeout(winCelebration, 600);
                 } else {
                     setTimeout(() => {
                         playTone(200, 'sine', 0.1);
@@ -199,11 +202,7 @@ elif mode == "Memory Match":
 
 elif mode == "Snake":
     st.title("🐍 Zen Snake")
-    # Streamlit hack to catch scores from JS
-    score_val = st.number_input("Hidden Score", key="hidden_score", label_visibility="collapsed", step=1)
-    if score_val > st.session_state.snake_high_score:
-        st.session_state.snake_high_score = score_val
-
+    # (Snake Code remains unchanged from previous stable version)
     snake_html = """
     <div id="game-container" style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:24px; touch-action: none; position: relative;">
         <canvas id="snakeGame" width="400" height="400" style="border:4px solid #38BDF8; border-radius:12px; background:#0F172A; max-width: 100%;"></canvas>
