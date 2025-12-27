@@ -40,7 +40,7 @@ def get_data(worksheet_name="Users"):
 
 # --- 3. LOGIN / SIGNUP ---
 if not st.session_state.auth["logged_in"]:
-    st.markdown("<h1 style='text-align:center; mt-50px;'>🧠 Health Bridge Portal</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge Portal</h1>", unsafe_allow_html=True)
     t1, t2 = st.tabs(["🔐 Login", "📝 Sign Up"])
     with t1:
         u = st.text_input("Couple ID", key="l_u")
@@ -90,7 +90,7 @@ with main_nav[0]:
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 6. CAREGIVER TAB (REWORKED CHART) ---
+# --- 6. CAREGIVER TAB ---
 with main_nav[1]:
     try:
         df_l = conn.read(worksheet="Sheet1", ttl=0)
@@ -100,40 +100,22 @@ with main_nav[1]:
 
         if not df_p.empty:
             st.markdown('<div class="portal-card"><h3>📉 Energy Analytics</h3>', unsafe_allow_html=True)
-            
-            # Using Plotly for advanced color splitting
             fig = go.Figure()
-
             # Neutral Baseline Line
             fig.add_shape(type="line", x0=df_p['Timestamp'].min(), y0=6, x1=df_p['Timestamp'].max(), y1=6,
                           line=dict(color="White", width=2, dash="dash"))
-
-            # The Energy Line
-            fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=df_p['EnergyLog'],
-                                     mode='lines+markers',
-                                     line=dict(color='#38BDF8', width=3),
-                                     name='Energy Level',
-                                     fill='tozeroy',
-                                     fillcolor='rgba(248, 113, 113, 0.2)')) # Red for bottom
-
-            # Green overlay for top half
-            fig.add_trace(go.Scatter(x=df_p['Timestamp'], 
-                                     y=[max(6, y) for y in df_p['EnergyLog']],
-                                     mode='lines',
-                                     line=dict(width=0),
-                                     fill='tonexty',
-                                     fillcolor='rgba(74, 222, 128, 0.3)', # Green for top
-                                     showlegend=False))
-
-            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                              font=dict(color="white"), margin=dict(l=0, r=0, t=30, b=0),
-                              yaxis=dict(range=[1, 11], gridcolor="#334155"),
-                              xaxis=dict(showgrid=False))
-            
+            # Energy Line with Red/Green filling
+            fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=df_p['EnergyLog'], mode='lines+markers',
+                                     line=dict(color='#38BDF8', width=3), name='Energy',
+                                     fill='tozeroy', fillcolor='rgba(248, 113, 113, 0.2)'))
+            fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=[max(6, y) for y in df_p['EnergyLog']],
+                                     mode='lines', line=dict(width=0), fill='tonexty',
+                                     fillcolor='rgba(74, 222, 128, 0.3)', showlegend=False))
+            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"),
+                              yaxis=dict(range=[1, 11], gridcolor="#334155"), xaxis=dict(showgrid=False))
             st.plotly_chart(fig, use_container_width=True)
-            st.markdown('<p style="text-align:center; color:#94A3B8;">Neutral Line at 6.0</p></div>', unsafe_allow_html=True)
-    except Exception as e: 
-        st.info("No data yet.")
+            st.markdown('</div>', unsafe_allow_html=True)
+    except: st.info("No data yet.")
     
     st.markdown('<div class="portal-card"><h3>🤖 Clara Analyst</h3>', unsafe_allow_html=True)
     for m in st.session_state.clara_logs:
@@ -147,7 +129,7 @@ with main_nav[1]:
 
 # --- 7. GAMES TAB ---
 with main_nav[2]:
-    gt = st.radio("Choose Game", ["Snake", "Memory"], horizontal=True)
+    gt = st.radio("Choose Game", ["Snake", "Memory Match"], horizontal=True)
     if gt == "Snake":
         SNAKE_HTML = """
         <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
@@ -184,7 +166,39 @@ with main_nav[2]:
         """
         st.components.v1.html(SNAKE_HTML, height=520)
     else:
-        st.write("Memory Match game loading...")
+        MEMORY_HTML = """
+        <style>
+            .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; margin: auto; }
+            .card { height: 75px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }
+            .card.flipped { transform: rotateY(180deg); }
+            .face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #38BDF8; }
+            .front { background: #1E293B; }
+            .back { background: #334155; transform: rotateY(180deg); color: white; }
+        </style>
+        <div class="grid" id="g"></div>
+        <button onclick="location.reload()" style="width:100%; max-width:320px; display:block; margin:20px auto; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold;">🔄 New Game</button>
+        <script>
+            const icons = ['🍎','🍎','💎','💎','🌟','🌟','🚀','🚀','🌈','🌈','🔥','🔥','🍀','🍀','🎁','🎁'];
+            let shuffled = icons.sort(() => 0.5 - Math.random());
+            let flipped = [], lock = false;
+            const board = document.getElementById('g');
+            shuffled.forEach(icon => {
+                const card = document.createElement('div'); card.className = 'card';
+                card.innerHTML = `<div class="face front"></div><div class="face back">${icon}</div>`;
+                card.dataset.icon = icon;
+                card.onclick = function() {
+                    if(lock || this.classList.contains('flipped')) return;
+                    this.classList.add('flipped'); flipped.push(this);
+                    if(flipped.length === 2) {
+                        lock = true;
+                        if(flipped[0].dataset.icon === flipped[1].dataset.icon) { flipped = []; lock = false; }
+                        else { setTimeout(() => { flipped.forEach(c => c.classList.remove('flipped')); flipped = []; lock = false; }, 800); }
+                    }
+                }; board.appendChild(card);
+            });
+        </script>
+        """
+        st.components.v1.html(MEMORY_HTML, height=500)
 
 # --- 8. LOGOUT TAB ---
 with main_nav[3]:
