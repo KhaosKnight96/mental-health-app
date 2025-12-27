@@ -254,13 +254,13 @@ with main_nav[2]:
 
             if(hX==food.x && hY==food.y){{
                 score++; document.getElementById("st").innerText="Score: "+score;
-                playSound(600, 'sine', 0.1); // Success Beep
+                playSound(600, 'sine', 0.1);
                 food={{x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}};
             }} else if(d) snake.pop();
 
             let h={{x:hX, y:hY}};
             if(hX<0||hX>=300||hY<0||hY>=300||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){{
-                playSound(150, 'sawtooth', 0.5); // Game Over Buzz
+                playSound(150, 'sawtooth', 0.5);
                 clearInterval(game); alert("Game Over! Score: " + score);
             }}
             if(d) snake.unshift(h);
@@ -293,17 +293,17 @@ with main_nav[2]:
                 card.dataset.icon = icon;
                 card.onclick = function() {{
                     if(lock || this.classList.contains('flipped')) return;
-                    playSound(440, 'sine', 0.05); // Flip Click
+                    playSound(440, 'sine', 0.05);
                     this.classList.add('flipped'); flipped.push(this);
                     if(flipped.length === 2) {{
                         lock = true;
                         if(flipped[0].dataset.icon === flipped[1].dataset.icon) {{
                             matches++; flipped = []; lock = false;
-                            setTimeout(() => playSound(880, 'sine', 0.2), 200); // Match Chime
+                            setTimeout(() => playSound(880, 'sine', 0.2), 200);
                             if(matches === 8) alert("Match Complete!");
                         }} else {{
                             setTimeout(() => {{ 
-                                playSound(220, 'sine', 0.2); // Error Thud
+                                playSound(220, 'sine', 0.2);
                                 flipped.forEach(c => c.classList.remove('flipped')); 
                                 flipped = []; lock = false; 
                             }}, 800);
@@ -326,9 +326,7 @@ with main_nav[2]:
             const gridDisp = document.getElementById('grid');
             let board = Array(16).fill(0), score = 0;
 
-            function init() {{
-                addTile(); addTile(); render();
-            }}
+            function init() {{ addTile(); addTile(); render(); }}
 
             function addTile() {{
                 let empty = board.map((v, i) => v === 0 ? i : null).filter(v => v !== null);
@@ -339,7 +337,16 @@ with main_nav[2]:
                 gridDisp.innerHTML = '';
                 board.forEach(v => {{
                     const tile = document.createElement('div');
-                    tile.style = `width:60px; height:60px; background:${{v? '#38BDF8' : '#334155'}}; color:white; display:flex; align-items:center; justify-content:center; border-radius:5px; font-weight:bold; font-size:20px;`;
+                    tile.style.width = '60px';
+                    tile.style.height = '60px';
+                    tile.style.background = v ? '#38BDF8' : '#334155';
+                    tile.style.color = 'white';
+                    tile.style.display = 'flex';
+                    tile.style.alignItems = 'center';
+                    tile.style.justifyContent = 'center';
+                    tile.style.borderRadius = '5px';
+                    tile.style.fontWeight = 'bold';
+                    tile.style.fontSize = '20px';
                     tile.innerText = v || '';
                     gridDisp.appendChild(tile);
                 }});
@@ -347,11 +354,43 @@ with main_nav[2]:
             }}
 
             window.addEventListener('keydown', e => {{
-                if(!["ArrowUp","ArrowDown","ArrowLeft","ArrowRight
+                if(!["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) return;
+                e.preventDefault();
+                let old = [...board];
+                if(e.code === "ArrowLeft") move(0, 1, 4);
+                if(e.code === "ArrowRight") move(3, -1, 4);
+                if(e.code === "ArrowUp") move(0, 4, 1);
+                if(e.code === "ArrowDown") move(12, -4, 1);
+                if (JSON.stringify(old) !== JSON.stringify(board)) {{
+                    playSound(523, 'sine', 0.05);
+                    addTile(); render();
+                }}
+            }});
+
+            function move(start, step, side) {{
+                for (let i = 0; i < 4; i++) {{
+                    let line = [];
+                    for (let j = 0; j < 4; j++) line.push(board[start + i*side + j*step]);
+                    let filtered = line.filter(v => v);
+                    for (let j = 0; j < filtered.length - 1; j++) {{
+                        if (filtered[j] === filtered[j+1]) {{
+                            filtered[j] *= 2; score += filtered[j]; filtered.splice(j+1, 1);
+                            playSound(1046, 'sine', 0.1, 0.05);
+                        }}
+                    }}
+                    while (filtered.length < 4) filtered.push(0);
+                    for (let j = 0; j < 4; j++) board[start + i*side + j*step] = filtered[j];
+                }}
+            }}
+            init();
+        </script>
+        """
+        st.components.v1.html(T2048_HTML, height=480)
 # --- 8. LOGOUT ---
 with main_nav[3]:
     if st.button("Confirm Logout"):
         st.session_state.auth = {"logged_in": False}
         st.rerun()
+
 
 
