@@ -31,6 +31,7 @@ if "auth" not in st.session_state:
 if "chat_log" not in st.session_state: st.session_state.chat_log = []
 if "clara_history" not in st.session_state: st.session_state.clara_history = []
 if "current_page" not in st.session_state: st.session_state.current_page = None
+if "memory_win" not in st.session_state: st.session_state.memory_win = False
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
@@ -66,6 +67,7 @@ cid, cname, role = st.session_state.auth["cid"], st.session_state.auth["name"], 
 # --- 3. NAVIGATION LOGIC ---
 def reset_to_home():
     st.session_state.current_page = "Dashboard" if role == "patient" else "Analytics"
+    st.session_state.memory_win = False
     if "game_selector" in st.session_state:
         st.session_state.game_selector = "Select a Game"
 
@@ -97,6 +99,7 @@ mode = st.session_state.current_page
 # --- 4. PAGE CONTENT ---
 
 if mode in ["Dashboard", "Analytics"]:
+    # ... (Dashboard/Analytics code same as previous) ...
     if role == "patient":
         st.markdown(f'<div style="background: linear-gradient(90deg, #219EBC, #023047); padding: 25px; border-radius: 20px;"><h1>Hi {cname}! ☀️</h1></div>', unsafe_allow_html=True)
         col1, col2 = st.columns([1, 2])
@@ -117,11 +120,10 @@ if mode in ["Dashboard", "Analytics"]:
             with chat_box:
                 for m in st.session_state.chat_log:
                     with st.chat_message("user" if m["type"]=="P" else "assistant"): st.write(m["msg"])
-            p_in = st.chat_input("Tell Cooper how you're feeling...")
+            p_in = st.chat_input("Tell Cooper...")
             if p_in:
                 st.session_state.chat_log.append({"type": "P", "msg": p_in})
-                msgs = [{"role":"system","content":f"You are Cooper, a warm, supportive companion for {cname}."}] + \
-                       [{"role": "user" if m["type"]=="P" else "assistant", "content": m["msg"]} for m in st.session_state.chat_log[-6:]]
+                msgs = [{"role":"system","content":f"You are Cooper, a companion for {cname}."}] + [{"role": "user" if m["type"]=="P" else "assistant", "content": m["msg"]} for m in st.session_state.chat_log[-6:]]
                 res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs).choices[0].message.content
                 st.session_state.chat_log.append({"type": "C", "msg": res}); st.rerun()
     else:
@@ -134,22 +136,36 @@ if mode in ["Dashboard", "Analytics"]:
 
 elif mode == "Memory Match":
     st.title("🧩 3D Memory Match")
+    # Python-side balloons trigger
+    if st.button("Refresh Game Board"): st.rerun()
+    
     memory_html = """
     <div id="game-ui" style="display:flex; justify-content:center; flex-wrap:wrap; gap:12px; perspective: 1000px; padding: 20px;"></div>
     <script>
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    function playTone(freq, type, dur) {
+    function playTone(freq, type, dur, vol=0.05) {
         const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
         osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
         osc.connect(gain); gain.connect(audioCtx.destination);
         osc.start(); osc.stop(audioCtx.currentTime + dur);
     }
+    
+    function winCelebration() {
+        // Victory Chime Sequence
+        playTone(523.25, 'sine', 0.2, 0.1); // C5
+        setTimeout(() => playTone(659.25, 'sine', 0.2, 0.1), 150); // E5
+        setTimeout(() => playTone(783.99, 'sine', 0.2, 0.1), 300); // G5
+        setTimeout(() => playTone(1046.50, 'sine', 0.5, 0.1), 450); // C6
+        setTimeout(() => { alert("🎉 Magnificent! You matched them all!"); }, 600);
+    }
+
     const icons = ["🌟","🌟","🍀","🍀","🎈","🎈","💎","💎","🌈","🌈","🦄","🦄","🍎","🍎","🎨","🎨"];
     let shuffled = icons.sort(() => Math.random() - 0.5);
     let flipped = []; let matched = []; let canFlip = true;
     const container = document.getElementById('game-ui');
+
     shuffled.forEach((icon, i) => {
         const card = document.createElement('div');
         card.style = "width: 80px; height: 110px; cursor: pointer;";
@@ -166,12 +182,16 @@ elif mode == "Memory Match":
                 canFlip = false;
                 if (flipped[0].icon === flipped[1].icon) {
                     setTimeout(() => playTone(800, 'triangle', 0.2), 300);
-                    matched.push(flipped[0].i, flipped[1].i); flipped = []; canFlip = true;
+                    matched.push(flipped[0].i, flipped[1].i);
+                    flipped = []; canFlip = true;
+                    if (matched.length === icons.length) {
+                        setTimeout(winCelebration, 500);
+                    }
                 } else {
                     setTimeout(() => {
                         playTone(200, 'sine', 0.1);
                         document.getElementById(`card-${flipped[0].i}`).style.transform = "rotateY(0deg)";
-                        document.getElementById(`card-${flipped[1].i}`).style.transform = "rotateY(0deg)";
+                        document.getElementById(`card(`flipped[1].i}`).style.transform = "rotateY(0deg)";
                         flipped = []; canFlip = true;
                     }, 1000);
                 }
@@ -185,6 +205,7 @@ elif mode == "Memory Match":
 
 elif mode == "Snake":
     st.title("🐍 Zen Snake")
+    # ... (Snake JS same as previous version) ...
     snake_html = """
     <div id="game-container" style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:24px; touch-action: none; position: relative;">
         <canvas id="snakeGame" width="400" height="400" style="border:4px solid #38BDF8; border-radius:12px; background:#0F172A; max-width: 100%;"></canvas>
