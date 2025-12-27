@@ -15,13 +15,8 @@ st.markdown("""
     .stButton>button { border-radius: 12px; font-weight: 600; height: 3.5em; width: 100%; border: none; }
     .stSlider [data-baseweb="slider"] div { background-color: #38BDF8; }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
-    /* Prevent accidental scrolling on the whole app during games */
-    .game-container { touch-action: none; overflow: hidden; }
+    .game-container { touch-action: none; overflow: hidden; display: flex; justify-content: center; }
 </style>
-<head>
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-</head>
 """, unsafe_allow_html=True)
 
 # --- 2. CONNECTIONS ---
@@ -57,9 +52,8 @@ if not st.session_state.auth["logged_in"]:
 
 # --- 4. NAVIGATION ---
 with st.sidebar:
-    st.title("🌉 Menu")
+    st.title("Bridge Menu")
     nav = st.selectbox("Navigation", ["Dashboard", "Caregiver Insights", "Games"])
-    st.divider()
     if st.button("Logout"):
         st.session_state.auth = {"logged_in": False, "cid": None}
         st.rerun()
@@ -119,7 +113,7 @@ elif nav == "Caregiver Insights":
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 7. GAMES SECTION (FIXED SNAKE) ---
+# --- 7. GAMES SECTION (TOMATO SNAKE) ---
 elif nav == "Games":
     if st.button("⬅️ Back to Dashboard"): st.rerun()
     game_type = st.radio("Select Game", ["Zen Snake", "Memory Match"], horizontal=True)
@@ -127,55 +121,67 @@ elif nav == "Games":
     if game_type == "Zen Snake":
         SNAKE_HTML = """
         <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
-        <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; touch-action:none;" class="game-container">
+        <div class="game-container" style="flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px;">
             <canvas id="s" width="300" height="300" style="border:4px solid #38BDF8; background:black; border-radius:10px;"></canvas>
             <h2 id="st" style="color:#38BDF8; font-family:sans-serif;">Score: 0</h2>
             <button onclick="location.reload()" style="width:100%; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold; font-size:18px;">🔄 Restart Game</button>
         </div>
         <script>
-        const canvas=document.getElementById("s"), ctx=canvas.getContext("2d"), box=15;
-        let score=0, d, snake=[{x:9*box, y:10*box}], food={x:5*box, y:5*box};
+        const canvas=document.getElementById("s"), ctx=canvas.getContext("2d"), box=20;
+        let score=0, d, snake=[{x:7*box, y:7*box}], food={x:Math.floor(Math.random()*14+1)*box, y:Math.floor(Math.random()*14+1)*box};
 
-        // KEYBOARD CONTROLS + LOCK SCROLLING
-        window.addEventListener("keydown", function(e) {
-            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(e.code) > -1) {
-                e.preventDefault();
-            }
+        window.addEventListener("keydown", e => {
+            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
             if(e.code=="ArrowLeft" && d!="RIGHT") d="LEFT";
             if(e.code=="ArrowUp" && d!="DOWN") d="UP";
             if(e.code=="ArrowRight" && d!="LEFT") d="RIGHT";
             if(e.code=="ArrowDown" && d!="UP") d="DOWN";
-        }, false);
+        });
 
-        // SWIPE CONTROLS
         const mc = new Hammer(canvas);
         mc.get('swipe').set({ direction: Hammer.DIRECTION_ALL });
-        mc.on("swipeleft", (e) => { if(d!="RIGHT") d="LEFT"; e.preventDefault(); });
-        mc.on("swiperight", (e) => { if(d!="LEFT") d="RIGHT"; e.preventDefault(); });
-        mc.on("swipeup", (e) => { if(d!="DOWN") d="UP"; e.preventDefault(); });
-        mc.on("swipedown", (e) => { if(d!="UP") d="DOWN"; e.preventDefault(); });
+        mc.on("swipeleft swipeup swiperight swipedown", e => {
+            e.preventDefault();
+            if(e.type=="swipeleft" && d!="RIGHT") d="LEFT";
+            if(e.type=="swipeup" && d!="DOWN") d="UP";
+            if(e.type=="swiperight" && d!="LEFT") d="RIGHT";
+            if(e.type=="swipedown" && d!="UP") d="DOWN";
+        });
 
         function draw() {
             ctx.fillStyle="black"; ctx.fillRect(0,0,300,300);
-            ctx.fillStyle="#F87171"; ctx.fillRect(food.x, food.y, box, box);
-            snake.forEach((p,i)=>{ ctx.fillStyle=i==0?"#38BDF8":"white"; ctx.fillRect(p.x,p.y,box,box); });
+            
+            // Draw Tomato Food
+            ctx.font = "18px serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("🍅", food.x + box/2, food.y + box/2);
+
+            // Draw Snake
+            snake.forEach((p,i)=>{ 
+                ctx.fillStyle=i==0?"#38BDF8":"white"; 
+                ctx.fillRect(p.x,p.y,box-1,box-1); 
+            });
+
             let hX=snake[0].x, hY=snake[0].y;
             if(d=="LEFT") hX-=box; if(d=="UP") hY-=box; if(d=="RIGHT") hX+=box; if(d=="DOWN") hY+=box;
+
             if(hX==food.x && hY==food.y){ 
                 score++; document.getElementById("st").innerText="Score: "+score; 
-                food={x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box};
+                food={x:Math.floor(Math.random()*14+1)*box, y:Math.floor(Math.random()*14+1)*box};
             } else if(d) snake.pop();
+
             let h={x:hX, y:hY};
             if(hX<0||hX>=300||hY<0||hY>=300||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){
-                ctx.fillStyle="white"; ctx.font="20px Arial"; ctx.fillText("GAME OVER", 95, 150);
+                ctx.fillStyle="white"; ctx.font="bold 24px Arial"; ctx.fillText("GAME OVER", 150, 150);
                 clearInterval(game);
             }
             if(d) snake.unshift(h);
         }
-        let game = setInterval(draw, 120);
+        let game = setInterval(draw, 140);
         </script>
         """
-        st.components.v1.html(SNAKE_HTML, height=500)
+        st.components.v1.html(SNAKE_HTML, height=520)
 
     elif game_type == "Memory Match":
         MEMORY_HTML = """
