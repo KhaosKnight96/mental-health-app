@@ -243,47 +243,85 @@ with main_nav[2]:
     elif gt == "Memory Match":
         MEMORY_HTML = f"""
         <style>
-            .grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; margin: auto; }}
-            .card {{ height: 75px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }}
+            #g {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 500px; margin: auto; transition: all 0.5s ease; }}
+            .card {{ height: 70px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }}
             .card.flipped {{ transform: rotateY(180deg); }}
             .face {{ position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #334155; }}
             .front {{ background: #1E293B; border-color: #38BDF8; }}
             .back {{ background: #334155; transform: rotateY(180deg); color: white; }}
+            .stats {{ text-align: center; color: #38BDF8; font-family: sans-serif; margin-bottom: 15px; }}
         </style>
-        <div class="grid" id="g"></div>
+        <div class="stats"><span id="lvl">Level 1</span> | Matches: <span id="mtch">0</span></div>
+        <div id="g"></div>
         <script>
             {JS_SOUNDS}
-            const icons = ['🍎','🍎','💎','💎','🌟','🌟','🚀','🚀','🌈','🌈','🔥','🔥','🍀','🍀','🎁','🎁'];
-            let shuffled = icons.sort(() => 0.5 - Math.random());
-            let flipped = [], lock = false, matches = 0;
-            const board = document.getElementById('g');
-            shuffled.forEach(icon => {{
-                const card = document.createElement('div'); card.className = 'card';
-                card.innerHTML = `<div class="face front"></div><div class="face back">${{icon}}</div>`;
-                card.dataset.icon = icon;
-                card.onclick = function() {{
-                    if(lock || this.classList.contains('flipped')) return;
-                    playSound(440, 'sine', 0.05); this.classList.add('flipped'); flipped.push(this);
-                    if(flipped.length === 2) {{
-                        lock = true;
-                        if(flipped[0].dataset.icon === flipped[1].dataset.icon) {{
-                            matches++; flipped = []; lock = false;
-                            setTimeout(() => playSound(880, 'sine', 0.2), 200);
-                            if(matches === 8) alert("Match Complete!");
-                        }} else {{
-                            setTimeout(() => {{ 
-                                playSound(220, 'sine', 0.2);
-                                flipped.forEach(c => c.classList.remove('flipped')); 
-                                flipped = []; lock = false; 
-                            }}, 800);
+            const allIcons = ['🍎','💎','🌟','🚀','🌈','🔥','🍀','🎁','🦄','🐲','🍕','🎸','🪐','⚽','🍦','🍭','🎲','⚡'];
+            let currentLevel = 1;
+            let flipped = [], lock = false, matches = 0, totalPairs = 8;
+
+            function loadLevel(level) {{
+                const board = document.getElementById('g');
+                board.innerHTML = '';
+                matches = 0;
+                flipped = [];
+                
+                // Increase difficulty: Level 1 = 8 pairs, Level 2 = 12 pairs, Level 3 = 18 pairs
+                totalPairs = level === 1 ? 8 : (level === 2 ? 12 : 18);
+                document.getElementById('lvl').innerText = "Level " + level;
+                document.getElementById('mtch').innerText = "0 / " + totalPairs;
+
+                // Adjust grid columns
+                board.style.gridTemplateColumns = level === 1 ? "repeat(4, 1fr)" : "repeat(6, 1fr)";
+
+                let levelIcons = allIcons.slice(0, totalPairs);
+                let gameIcons = [...levelIcons, ...levelIcons].sort(() => 0.5 - Math.random());
+
+                gameIcons.forEach(icon => {{
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    card.innerHTML = `<div class="face front"></div><div class="face back">${{icon}}</div>`;
+                    card.dataset.icon = icon;
+                    card.onclick = function() {{
+                        if(lock || this.classList.contains('flipped')) return;
+                        playSound(440, 'sine', 0.05);
+                        this.classList.add('flipped');
+                        flipped.push(this);
+                        if(flipped.length === 2) {{
+                            lock = true;
+                            if(flipped[0].dataset.icon === flipped[1].dataset.icon) {{
+                                matches++;
+                                document.getElementById('mtch').innerText = matches + " / " + totalPairs;
+                                flipped = []; lock = false;
+                                setTimeout(() => playSound(880, 'sine', 0.2), 200);
+                                if(matches === totalPairs) {{
+                                    setTimeout(() => {{
+                                        if(currentLevel < 3) {{
+                                            alert("Level Complete! Getting harder...");
+                                            currentLevel++;
+                                            loadLevel(currentLevel);
+                                        }} else {{
+                                            alert("Grandmaster! You cleared all levels.");
+                                            currentLevel = 1;
+                                            loadLevel(1);
+                                        }}
+                                    }}, 500);
+                                }}
+                            }} else {{
+                                setTimeout(() => {{ 
+                                    playSound(220, 'sine', 0.2);
+                                    flipped.forEach(c => c.classList.remove('flipped')); 
+                                    flipped = []; lock = false; 
+                                }}, 800);
+                            }}
                         }}
-                    }}
-                }}; board.appendChild(card);
-            }});
+                    }};
+                    board.appendChild(card);
+                }});
+            }}
+            loadLevel(1);
         </script>
         """
-        st.components.v1.html(MEMORY_HTML, height=450)
-
+        st.components.v1.html(MEMORY_HTML, height=550)
     elif gt == "2048 Logic":
         T2048_HTML = f"""
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; font-family:sans-serif; position:relative;">
@@ -361,3 +399,4 @@ with main_nav[3]:
     if st.button("Confirm Logout"):
         st.session_state.auth = {"logged_in": False}
         st.rerun()
+
