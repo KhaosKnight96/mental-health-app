@@ -8,15 +8,14 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 if "auth" not in st.session_state:
     st.session_state.auth = {"logged_in": False, "cid": None}
-if "game_over_score" not in st.session_state:
-    st.session_state.game_over_score = 0
 
 def get_data():
+    # Force fresh read from Google Sheets
     df = conn.read(worksheet="Users", ttl=0)
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
-# --- 2. LOGIN ---
+# --- 2. LOGIN GATE ---
 if not st.session_state.auth["logged_in"]:
     st.title("🧠 Health Bridge")
     u = st.text_input("Couple ID")
@@ -29,36 +28,51 @@ if not st.session_state.auth["logged_in"]:
             st.rerun()
     st.stop()
 
-# --- 3. DATA REFRESH ---
+# --- 3. LOAD CURRENT STATS ---
 df = get_data()
 user_idx = df.index[df['Username'].astype(str) == str(st.session_state.auth['cid'])]
-current_pb = int(pd.to_numeric(df.at[user_idx[0], 'HighScore'], errors='coerce') or 0)
+
+if not user_idx.empty:
+    # This is the variable name that caused the error - now standardized to current_pb
+    current_pb = int(pd.to_numeric(df.at[user_idx[0], 'HighScore'], errors='coerce') or 0)
+else:
+    st.error("User not found in sheet.")
+    st.stop()
 
 # --- 4. THE UI LAYOUT ---
 st.title("🐍 Zen Snake")
 col1, col2 = st.columns([2, 1])
 
 with col2:
-    st.markdown(f"### 🏆 Record: **{current_pb}**")
-    st.divider()
-    st.write("1. Play the game on the left.")
-    st.write("2. When 'Game Over' appears, enter your score below.")
+    st.markdown(f"""
+    <div style="background:#1E293B; padding:20px; border-radius:15px; border:1px solid #38BDF8;">
+        <h3 style="margin:0; color:white;">🏆 Record: {current_pb}</h3>
+    </div>
+    """, unsafe_allow_html=True)
     
+    st.divider()
+    st.write("### 🏁 Submit Score")
+    st.write("After the game ends, enter your score below to update the Google Sheet.")
+    
+    # User types the score they see on the game screen here
     score_input = st.number_input("Final Game Score:", min_value=0, step=1, key="manual_score")
     
-    if st.button("🚀 Sync Score to Google Sheets", type="primary", use_container_width=True):
-        if score_input > current_best:
+    if st.button("🚀 Sync to Google Sheets", type="primary", use_container_width=True):
+        if score_input > current_pb:
+            # Update the local copy of the dataframe
             df.at[user_idx[0], 'HighScore'] = score_input
+            # Push the entire dataframe back to Google Sheets
             conn.update(worksheet="Users", data=df)
-            st.cache_data.clear()
+            st.cache_data.clear() # Clear memory
             st.success(f"Sheet Updated! New Record: {score_input}")
             st.balloons()
+            # Rerun to update the "Record" display at the top
             st.rerun()
         else:
-            st.warning(f"Your score ({score_input}) didn't beat your record ({current_best}).")
+            st.warning(f"Score {score_input} didn't beat your record of {current_pb}.")
 
 with col1:
-    # Game component - simplified to prevent any browser errors
+    # Game component
     SNAKE_HTML = """
     <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px;">
         <canvas id="s" width="400" height="400" style="border:4px solid #38BDF8; background:black;"></canvas>
@@ -103,6 +117,7 @@ with col1:
     """
     st.components.v1.html(SNAKE_HTML, height=550)
 
+# --- 5. LOGOUT ---
 if st.sidebar.button("Logout"):
     st.session_state.auth = {"logged_in": False, "cid": None}
     st.rerun()
