@@ -3,6 +3,7 @@ import pandas as pd
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
+import plotly.graph_objects as go
 
 # --- 1. CONFIG ---
 st.set_page_config(page_title="Health Bridge", layout="wide")
@@ -13,7 +14,6 @@ st.markdown("""
     .portal-card { background: #1E293B; padding: 25px; border-radius: 20px; border: 1px solid #334155; margin-bottom: 20px; }
     .stButton>button { border-radius: 12px; font-weight: 600; height: 3.5em; width: 100%; border: none; }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
-    /* Tab Styling */
     .stTabs [data-baseweb="tab-list"] { gap: 20px; }
     .stTabs [data-baseweb="tab"] { 
         background-color: #1E293B; border-radius: 10px; padding: 10px 20px; color: white; border: 1px solid #334155;
@@ -38,9 +38,9 @@ def get_data(worksheet_name="Users"):
         return df
     except: return pd.DataFrame()
 
-# --- 3. LOGIN / SIGNUP (Always on top if not logged in) ---
+# --- 3. LOGIN / SIGNUP ---
 if not st.session_state.auth["logged_in"]:
-    st.markdown("<h1 style='text-align:center; margin-top:50px;'>🧠 Health Bridge Portal</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align:center; mt-50px;'>🧠 Health Bridge Portal</h1>", unsafe_allow_html=True)
     t1, t2 = st.tabs(["🔐 Login", "📝 Sign Up"])
     with t1:
         u = st.text_input("Couple ID", key="l_u")
@@ -63,7 +63,7 @@ if not st.session_state.auth["logged_in"]:
             st.success("Account created!")
     st.stop()
 
-# --- 4. MAIN APP NAVIGATION (Replacing Sidebar) ---
+# --- 4. NAVIGATION ---
 st.markdown(f"### Welcome, {st.session_state.auth['name']} ✨")
 main_nav = st.tabs(["🏠 Dashboard", "📊 Caregiver Insights", "🎮 Games", "🚪 Logout"])
 
@@ -90,15 +90,51 @@ with main_nav[0]:
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 6. CAREGIVER TAB ---
+# --- 6. CAREGIVER TAB (REWORKED CHART) ---
 with main_nav[1]:
     try:
         df_l = conn.read(worksheet="Sheet1", ttl=0)
         df_p = df_l[df_l['CoupleID'].astype(str) == str(st.session_state.auth['cid'])].copy()
         df_p['Timestamp'] = pd.to_datetime(df_p['Timestamp'])
-        df_p['Goal'] = 6
-        st.line_chart(df_p.set_index('Timestamp')[['EnergyLog', 'Goal']], color=["#38BDF8", "#F87171"])
-    except: st.info("No data yet.")
+        df_p = df_p.sort_values('Timestamp')
+
+        if not df_p.empty:
+            st.markdown('<div class="portal-card"><h3>📉 Energy Analytics</h3>', unsafe_allow_html=True)
+            
+            # Using Plotly for advanced color splitting
+            fig = go.Figure()
+
+            # Neutral Baseline Line
+            fig.add_shape(type="line", x0=df_p['Timestamp'].min(), y0=6, x1=df_p['Timestamp'].max(), y1=6,
+                          line=dict(color="White", width=2, dash="dash"))
+
+            # The Energy Line
+            fig.add_trace(go.Scatter(x=df_p['Timestamp'], y=df_p['EnergyLog'],
+                                     mode='lines+markers',
+                                     line=dict(color='#38BDF8', width=3),
+                                     name='Energy Level',
+                                     fill='tozeroy',
+                                     fillcolor='rgba(248, 113, 113, 0.2)')) # Red for bottom
+
+            # Green overlay for top half
+            fig.add_trace(go.Scatter(x=df_p['Timestamp'], 
+                                     y=[max(6, y) for y in df_p['EnergyLog']],
+                                     mode='lines',
+                                     line=dict(width=0),
+                                     fill='tonexty',
+                                     fillcolor='rgba(74, 222, 128, 0.3)', # Green for top
+                                     showlegend=False))
+
+            fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                              font=dict(color="white"), margin=dict(l=0, r=0, t=30, b=0),
+                              yaxis=dict(range=[1, 11], gridcolor="#334155"),
+                              xaxis=dict(showgrid=False))
+            
+            st.plotly_chart(fig, use_container_width=True)
+            st.markdown('<p style="text-align:center; color:#94A3B8;">Neutral Line at 6.0</p></div>', unsafe_allow_html=True)
+    except Exception as e: 
+        st.info("No data yet.")
+    
     st.markdown('<div class="portal-card"><h3>🤖 Clara Analyst</h3>', unsafe_allow_html=True)
     for m in st.session_state.clara_logs:
         with st.chat_message(m["role"]): st.write(m["content"])
