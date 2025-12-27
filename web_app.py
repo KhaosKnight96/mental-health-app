@@ -209,16 +209,32 @@ with main_nav[1]:
 
 # --- 7. GAMES ---
 with main_nav[2]:
-    gt = st.radio("Select Activity", ["Modern Snake", "Memory Match"], horizontal=True)
+    st.markdown('<div class="portal-card">', unsafe_allow_html=True)
+    gt = st.radio("Select Activity", ["Modern Snake", "Memory Match", "2048 Logic"], horizontal=True)
+    st.markdown('</div>', unsafe_allow_html=True)
     
+    # Sound Logic shared across games
+    JS_SOUNDS = """
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(freq, type, duration, vol=0.1) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + duration);
+    }
+    """
+
     if gt == "Modern Snake":
-        # We use a double-bracket approach for the f-string to allow JS brackets to exist
         SNAKE_HTML = f"""
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px;">
             <canvas id="s" width="300" height="300" style="border:4px solid #38BDF8; background:#0F172A; border-radius:10px;"></canvas>
             <h2 id="st" style="color:#38BDF8; font-family:sans-serif;">Score: 0</h2>
         </div>
         <script>
+        {JS_SOUNDS}
         const canvas=document.getElementById("s"), ctx=canvas.getContext("2d"), box=15;
         let score=0, d, snake=[{{x:10*box, y:10*box}}], food={{x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}};
         
@@ -238,65 +254,104 @@ with main_nav[2]:
 
             if(hX==food.x && hY==food.y){{
                 score++; document.getElementById("st").innerText="Score: "+score;
+                playSound(600, 'sine', 0.1); // Success Beep
                 food={{x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}};
             }} else if(d) snake.pop();
 
             let h={{x:hX, y:hY}};
             if(hX<0||hX>=300||hY<0||hY>=300||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){{
-                clearInterval(game);
-                alert("Game Over! Score: " + score);
+                playSound(150, 'sawtooth', 0.5); // Game Over Buzz
+                clearInterval(game); alert("Game Over! Score: " + score);
             }}
             if(d) snake.unshift(h);
         }}
         let game = setInterval(draw, 100);
         </script>
         """
-        st.components.v1.html(SNAKE_HTML, height=500)
-    
+        st.components.v1.html(SNAKE_HTML, height=480)
+
     elif gt == "Memory Match":
-        MEMORY_HTML = """
+        MEMORY_HTML = f"""
         <style>
-            .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; margin: auto; }
-            .card { height: 75px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }
-            .card.flipped { transform: rotateY(180deg); }
-            .face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #334155; }
-            .front { background: #1E293B; border-color: #38BDF8; }
-            .back { background: #334155; transform: rotateY(180deg); color: white; }
+            .grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; margin: auto; }}
+            .card {{ height: 75px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }}
+            .card.flipped {{ transform: rotateY(180deg); }}
+            .face {{ position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #334155; }}
+            .front {{ background: #1E293B; border-color: #38BDF8; }}
+            .back {{ background: #334155; transform: rotateY(180deg); color: white; }}
         </style>
         <div class="grid" id="g"></div>
         <script>
+            {JS_SOUNDS}
             const icons = ['🍎','🍎','💎','💎','🌟','🌟','🚀','🚀','🌈','🌈','🔥','🔥','🍀','🍀','🎁','🎁'];
             let shuffled = icons.sort(() => 0.5 - Math.random());
             let flipped = [], lock = false, matches = 0;
             const board = document.getElementById('g');
-            shuffled.forEach(icon => {
+            shuffled.forEach(icon => {{
                 const card = document.createElement('div'); card.className = 'card';
-                card.innerHTML = `<div class="face front"></div><div class="face back">${icon}</div>`;
+                card.innerHTML = `<div class="face front"></div><div class="face back">${{icon}}</div>`;
                 card.dataset.icon = icon;
-                card.onclick = function() {
+                card.onclick = function() {{
                     if(lock || this.classList.contains('flipped')) return;
+                    playSound(440, 'sine', 0.05); // Flip Click
                     this.classList.add('flipped'); flipped.push(this);
-                    if(flipped.length === 2) {
+                    if(flipped.length === 2) {{
                         lock = true;
-                        if(flipped[0].dataset.icon === flipped[1].dataset.icon) {
+                        if(flipped[0].dataset.icon === flipped[1].dataset.icon) {{
                             matches++; flipped = []; lock = false;
+                            setTimeout(() => playSound(880, 'sine', 0.2), 200); // Match Chime
                             if(matches === 8) alert("Match Complete!");
-                        } else {
-                            setTimeout(() => { 
+                        }} else {{
+                            setTimeout(() => {{ 
+                                playSound(220, 'sine', 0.2); // Error Thud
                                 flipped.forEach(c => c.classList.remove('flipped')); 
                                 flipped = []; lock = false; 
-                            }, 800);
-                        }
-                    }
-                }; board.appendChild(card);
-            });
+                            }}, 800);
+                        }}
+                    }}
+                }}; board.appendChild(card);
+            }});
         </script>
         """
         st.components.v1.html(MEMORY_HTML, height=450)
 
+    elif gt == "2048 Logic":
+        T2048_HTML = f"""
+        <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; font-family:sans-serif;">
+            <div id="grid" style="display:grid; grid-template-columns:repeat(4, 60px); grid-gap:10px; background:#0F172A; padding:10px; border-radius:10px;"></div>
+            <h2 id="sc" style="color:#38BDF8; margin-top:15px;">Score: 0</h2>
+        </div>
+        <script>
+            {JS_SOUNDS}
+            const gridDisp = document.getElementById('grid');
+            let board = Array(16).fill(0), score = 0;
+
+            function init() {{
+                addTile(); addTile(); render();
+            }}
+
+            function addTile() {{
+                let empty = board.map((v, i) => v === 0 ? i : null).filter(v => v !== null);
+                if (empty.length) board[empty[Math.floor(Math.random()*empty.length)]] = Math.random() < 0.9 ? 2 : 4;
+            }}
+
+            function render() {{
+                gridDisp.innerHTML = '';
+                board.forEach(v => {{
+                    const tile = document.createElement('div');
+                    tile.style = `width:60px; height:60px; background:${{v? '#38BDF8' : '#334155'}}; color:white; display:flex; align-items:center; justify-content:center; border-radius:5px; font-weight:bold; font-size:20px;`;
+                    tile.innerText = v || '';
+                    gridDisp.appendChild(tile);
+                }});
+                document.getElementById('sc').innerText = "Score: " + score;
+            }}
+
+            window.addEventListener('keydown', e => {{
+                if(!["ArrowUp","ArrowDown","ArrowLeft","ArrowRight
 # --- 8. LOGOUT ---
 with main_nav[3]:
     if st.button("Confirm Logout"):
         st.session_state.auth = {"logged_in": False}
         st.rerun()
+
 
