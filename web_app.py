@@ -242,50 +242,75 @@ with main_nav[2]:
 
     elif gt == "Memory Match":
         MEMORY_HTML = f"""
-        <style>
-            #g {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 500px; margin: auto; transition: all 0.5s ease; }}
-            .card {{ height: 70px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }}
-            .card.flipped {{ transform: rotateY(180deg); }}
-            .face {{ position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #334155; }}
-            .front {{ background: #1E293B; border-color: #38BDF8; }}
-            .back {{ background: #334155; transform: rotateY(180deg); color: white; }}
-            .stats {{ text-align: center; color: #38BDF8; font-family: sans-serif; margin-bottom: 15px; }}
-        </style>
-        <div class="stats"><span id="lvl">Level 1</span> | Matches: <span id="mtch">0</span></div>
-        <div id="g"></div>
+        <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; position:relative; min-height:480px;">
+            <div style="text-align: center; color: #38BDF8; font-family: sans-serif; margin-bottom: 15px;">
+                <span id="lvl" style="font-weight:bold; font-size:1.2em;">Level 1</span> | 
+                Matches: <span id="mtch">0</span>
+            </div>
+            
+            <div id="g" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: 100%; max-width: 400px;"></div>
+
+            <div id="overMem" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.9); border-radius:15px; flex-direction:column; align-items:center; justify-content:center; z-index:10; text-align:center; padding:20px;">
+                <h1 id="memTitle" style="color:#38BDF8; font-family:sans-serif; margin-bottom:10px;">LEVEL CLEAR!</h1>
+                <p id="memDesc" style="color:white; font-family:sans-serif; font-size:1.1em; margin-bottom:20px;">Ready for more cards?</p>
+                <button id="memBtn" onclick="nextLevel()" style="background:#38BDF8; color:white; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-weight:bold; font-size:1em;">Next Level</button>
+            </div>
+        </div>
+
         <script>
             {JS_SOUNDS}
             const allIcons = ['🍎','💎','🌟','🚀','🌈','🔥','🍀','🎁','🦄','🐲','🍕','🎸','🪐','⚽','🍦','🍭','🎲','⚡'];
             let currentLevel = 1;
             let flipped = [], lock = false, matches = 0, totalPairs = 8;
 
+            function nextLevel() {{
+                if (currentLevel < 3) {{
+                    currentLevel++;
+                    loadLevel(currentLevel);
+                }} else {{
+                    currentLevel = 1;
+                    loadLevel(1);
+                }}
+            }}
+
             function loadLevel(level) {{
+                document.getElementById("overMem").style.display = "none";
                 const board = document.getElementById('g');
                 board.innerHTML = '';
                 matches = 0;
                 flipped = [];
                 
-                // Increase difficulty: Level 1 = 8 pairs, Level 2 = 12 pairs, Level 3 = 18 pairs
+                // Difficulty: L1=8 pairs(4x4), L2=12 pairs(6x4), L3=18 pairs(6x6)
                 totalPairs = level === 1 ? 8 : (level === 2 ? 12 : 18);
                 document.getElementById('lvl').innerText = "Level " + level;
                 document.getElementById('mtch').innerText = "0 / " + totalPairs;
 
-                // Adjust grid columns
-                board.style.gridTemplateColumns = level === 1 ? "repeat(4, 1fr)" : "repeat(6, 1fr)";
+                // Adjust grid columns based on level
+                board.style.gridTemplateColumns = (level === 1) ? "repeat(4, 1fr)" : "repeat(6, 1fr)";
 
                 let levelIcons = allIcons.slice(0, totalPairs);
                 let gameIcons = [...levelIcons, ...levelIcons].sort(() => 0.5 - Math.random());
 
                 gameIcons.forEach(icon => {{
                     const card = document.createElement('div');
+                    card.style.height = "70px";
+                    card.style.position = "relative";
+                    card.style.transformStyle = "preserve-3d";
+                    card.style.transition = "transform 0.5s";
+                    card.style.cursor = "pointer";
                     card.className = 'card';
-                    card.innerHTML = `<div class="face front"></div><div class="face back">${{icon}}</div>`;
+                    card.innerHTML = `
+                        <div style="position:absolute; width:100%; height:100%; backface-visibility:hidden; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:25px; border:2px solid #334155; background:#1E293B; border-color:#38BDF8;"></div>
+                        <div style="position:absolute; width:100%; height:100%; backface-visibility:hidden; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:25px; border:2px solid #334155; background:#334155; transform:rotateY(180deg); color:white;">${{icon}}</div>
+                    `;
                     card.dataset.icon = icon;
+                    
                     card.onclick = function() {{
-                        if(lock || this.classList.contains('flipped')) return;
+                        if(lock || this.style.transform === "rotateY(180deg)") return;
                         playSound(440, 'sine', 0.05);
-                        this.classList.add('flipped');
+                        this.style.transform = "rotateY(180deg)";
                         flipped.push(this);
+                        
                         if(flipped.length === 2) {{
                             lock = true;
                             if(flipped[0].dataset.icon === flipped[1].dataset.icon) {{
@@ -293,23 +318,14 @@ with main_nav[2]:
                                 document.getElementById('mtch').innerText = matches + " / " + totalPairs;
                                 flipped = []; lock = false;
                                 setTimeout(() => playSound(880, 'sine', 0.2), 200);
+                                
                                 if(matches === totalPairs) {{
-                                    setTimeout(() => {{
-                                        if(currentLevel < 3) {{
-                                            alert("Level Complete! Getting harder...");
-                                            currentLevel++;
-                                            loadLevel(currentLevel);
-                                        }} else {{
-                                            alert("Grandmaster! You cleared all levels.");
-                                            currentLevel = 1;
-                                            loadLevel(1);
-                                        }}
-                                    }}, 500);
+                                    setTimeout(showWinOverlay, 600);
                                 }}
                             }} else {{
                                 setTimeout(() => {{ 
                                     playSound(220, 'sine', 0.2);
-                                    flipped.forEach(c => c.classList.remove('flipped')); 
+                                    flipped.forEach(c => c.style.transform = "rotateY(0deg)"); 
                                     flipped = []; lock = false; 
                                 }}, 800);
                             }}
@@ -318,10 +334,32 @@ with main_nav[2]:
                     board.appendChild(card);
                 }});
             }}
+
+            function showWinOverlay() {{
+                playSound(600, 'sine', 0.4);
+                const overlay = document.getElementById("overMem");
+                const title = document.getElementById("memTitle");
+                const desc = document.getElementById("memDesc");
+                const btn = document.getElementById("memBtn");
+
+                if (currentLevel < 3) {{
+                    title.innerText = "LEVEL CLEAR!";
+                    title.style.color = "#38BDF8";
+                    desc.innerText = "Great memory! Ready for Level " + (currentLevel + 1) + "?";
+                    btn.innerText = "Next Level";
+                }} else {{
+                    title.innerText = "GRANDMASTER!";
+                    title.style.color = "#F472B6";
+                    desc.innerText = "You've conquered the maximum difficulty!";
+                    btn.innerText = "Play Again";
+                }}
+                overlay.style.display = "flex";
+            }}
+
             loadLevel(1);
         </script>
         """
-        st.components.v1.html(MEMORY_HTML, height=550)
+        st.components.v1.html(MEMORY_HTML, height=580)
     elif gt == "2048 Logic":
         T2048_HTML = f"""
         <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; font-family:sans-serif; position:relative;">
@@ -399,4 +437,5 @@ with main_nav[3]:
     if st.button("Confirm Logout"):
         st.session_state.auth = {"logged_in": False}
         st.rerun()
+
 
