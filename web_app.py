@@ -49,26 +49,26 @@ client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
 if "auth" not in st.session_state:
     st.session_state.auth = {"logged_in": False, "mid": None, "name": None, "role": "user"}
-if "cooper_logs" not in st.session_state: st.session_state.cooper_logs = []
-if "clara_logs" not in st.session_state: st.session_state.clara_logs = []
 
 def get_data(worksheet_name):
     try:
         df = conn.read(worksheet=worksheet_name, ttl=0)
-        df.columns = [str(c).strip() for c in df.columns]
+        # CASE INSENSITIVE FIX: Convert all column names to lowercase and strip spaces
+        df.columns = [str(c).strip().lower() for c in df.columns]
         return df
     except:
-        if worksheet_name == "ChatLogs":
-            return pd.DataFrame(columns=["Timestamp", "MemberId", "Agent", "Role", "Content"])
+        if worksheet_name == "chatlogs":
+            return pd.DataFrame(columns=["timestamp", "memberid", "agent", "role", "content"])
         return pd.DataFrame()
 
 def save_chat_to_sheets(agent, role, content):
+    # Map the data to lowercase keys to match the normalized sheet
     new_entry = pd.DataFrame([{
-        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "MemberId": st.session_state.auth['mid'],
-        "Agent": agent,
-        "Role": role,
-        "Content": content
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "memberid": st.session_state.auth['mid'],
+        "agent": agent,
+        "role": role,
+        "content": content
     }])
     existing_df = get_data("ChatLogs")
     updated_df = pd.concat([existing_df, new_entry], ignore_index=True)
@@ -79,40 +79,38 @@ if not st.session_state.auth["logged_in"]:
     st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge Portal</h1>", unsafe_allow_html=True)
     t1, t2 = st.tabs(["🔐 Login", "📝 Sign Up"])
     with t1:
-        u = st.text_input("Member ID", key="l_u")
+        u = st.text_input("Member ID", key="l_u").strip().lower() # Input is now lowercase
         p = st.text_input("Password", type="password", key="l_p")
         if st.button("Sign In"):
             df = get_data("Users")
-            m = df[(df['Username'].astype(str) == u) & (df['Password'].astype(str) == p)]
-            if not m.empty:
-                user_role = m.iloc[0]['Role'] if 'Role' in m.columns else 'user'
-                st.session_state.auth.update({
-                    "logged_in": True, 
-                    "mid": u, 
-                    "name": m.iloc[0]['Fullname'],
-                    "role": str(user_role).lower()
-                })
-                # Load History
-                all_chats = get_data("ChatLogs")
-                if not all_chats.empty:
-                    user_chats = all_chats[all_chats['MemberId'].astype(str) == str(u)]
-                    cooper_data = user_chats[user_chats['Agent'] == "Cooper"]
-                    st.session_state.cooper_logs = [{"role": row["Role"], "content": row["Content"]} for _, row in cooper_data.iterrows()]
-                    clara_data = user_chats[user_chats['Agent'] == "Clara"]
-                    st.session_state.clara_logs = [{"role": row["Role"], "content": row["Content"]} for _, row in clara_data.iterrows()]
-                st.rerun()
-            else: st.error("Invalid Credentials")
+            # Logic now checks against lowercase 'memberid' and 'password'
+            if 'memberid' in df.columns and 'password' in df.columns:
+                m = df[(df['memberid'].astype(str).str.lower() == u) & 
+                       (df['password'].astype(str) == p)]
+                
+                if not m.empty:
+                    user_role = m.iloc[0]['role'] if 'role' in m.columns else 'user'
+                    st.session_state.auth.update({
+                        "logged_in": True, 
+                        "mid": u, 
+                        "name": m.iloc[0]['fullname'] if 'fullname' in m.columns else u,
+                        "role": str(user_role).lower()
+                    })
+                    st.rerun()
+                else: st.error("Invalid Credentials")
+            else:
+                st.error(f"Sheet missing required columns. Found: {df.columns.tolist()}")
+    
     with t2:
         n = st.text_input("Full Name")
-        c = st.text_input("Member ID")
-        pw = st.text_input("Password", type="password")
+        c = st.text_input("Member ID (Create)").strip().lower()
+        pw = st.text_input("Create Password", type="password")
         if st.button("Register"):
             df = get_data("Users")
-            new_user = pd.DataFrame([{"Fullname": n, "Username": c, "Password": pw, "Role": "user"}])
+            new_user = pd.DataFrame([{"fullname": n, "memberid": c, "password": pw, "role": "user"}])
             conn.update(worksheet="Users", data=pd.concat([df, new_user], ignore_index=True))
             st.success("Account created!")
     st.stop()
-
 # --- 4. NAVIGATION ---
 nav_options = ["🏠 Cooper's Corner", "🛋️ Clara's Couch", "🎮 Games"]
 if st.session_state.auth.get("role") == "admin":
@@ -389,3 +387,4 @@ with main_nav[-1]:
     if st.button("Confirm Logout"):
         st.session_state.auth = {"logged_in": False}
         st.rerun()
+
