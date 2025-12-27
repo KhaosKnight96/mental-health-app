@@ -1,5 +1,5 @@
 import streamlit as st
-import pd
+import pandas as pd
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
@@ -85,7 +85,7 @@ if nav == "Dashboard":
         
         if st.button("💾 Sync Energy"):
             try:
-                # Prepare data with your exact header "EnergyLog"
+                # Prepare data with exact header "EnergyLog"
                 new_row = pd.DataFrame([{
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), 
                     "CoupleID": st.session_state.auth['cid'], 
@@ -97,7 +97,7 @@ if nav == "Dashboard":
                 existing_data = conn.read(worksheet="Sheet1", ttl=0)
                 existing_data.columns = [str(c).strip() for c in existing_data.columns]
                 
-                # Append and Update silently (No success message or balloons)
+                # Append and Update silently
                 updated_data = pd.concat([existing_data, new_row], ignore_index=True)
                 conn.update(worksheet="Sheet1", data=updated_data)
                 
