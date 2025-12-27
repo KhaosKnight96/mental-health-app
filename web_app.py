@@ -75,31 +75,68 @@ if not st.session_state.auth["logged_in"]:
             else: st.error("Access Denied")
     st.stop()
 
-# --- 3. REFINED ROLE SELECTION (ONE BUTTON PER ROLE) ---
+# --- 3. BEAUTIFIED ROLE SELECTION (Side-by-Side Hero Cards) ---
 if st.session_state.auth["role"] is None:
     st.write("##")
-    st.markdown(f"<h1 style='text-align: center;'>Welcome back, {st.session_state.auth['name']}</h1>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; font-size: 18px;'>Please select your portal for this session:</p>", unsafe_allow_html=True)
+    st.markdown(f"<h1 style='text-align: center; font-size: 2.5rem; color: white;'>Welcome, {st.session_state.auth['name']}</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #94A3B8; font-size: 1.1rem;'>Please select your portal to continue</p>", unsafe_allow_html=True)
     st.write("##")
     
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # CSS for the Side-by-Side Cards
+    st.markdown("""
+    <style>
+        .role-card-container {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 40px 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            height: 320px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .role-card-container:hover {
+            background: rgba(56, 189, 248, 0.1);
+            border-color: #38BDF8;
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+        }
+        .role-icon { font-size: 60px; margin-bottom: 20px; }
+        .role-name { font-size: 24px; font-weight: 700; color: white !important; margin-bottom: 10px; }
+        .role-text { font-size: 14px; color: #94A3B8 !important; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3, col4, col5 = st.columns([1, 3, 0.5, 3, 1])
     
     with col2:
-        # Patient Option
-        st.markdown("""<div class="role-container"><div class="role-icon">👤</div><div class="role-title">Patient Portal</div><div class="role-desc">Chat with Cooper, log your energy, and play games.</div></div>""", unsafe_allow_html=True)
-        if st.button("Enter as Patient", use_container_width=True, key="btn_p"):
+        st.markdown("""
+            <div class="role-card-container">
+                <div class="role-icon">👤</div>
+                <div class="role-name">Patient Portal</div>
+                <div class="role-text">Log daily energy, chat with Cooper, and access the Zen Zone games.</div>
+            </div>
+        """, unsafe_allow_html=True)
+        if st.button("Access Patient View", use_container_width=True, type="primary"):
             st.session_state.auth["role"] = "patient"
             st.rerun()
-            
-        st.write("##") # Space between buttons
-        
-        # Caregiver Option
-        st.markdown("""<div class="role-container"><div class="role-icon">👩‍⚕️</div><div class="role-title">Caregiver Command</div><div class="role-desc">Consult Clara and analyze patient health trends.</div></div>""", unsafe_allow_html=True)
-        if st.button("Enter as Caregiver", use_container_width=True, key="btn_c"):
+
+    with col4:
+        st.markdown("""
+            <div class="role-card-container">
+                <div class="role-icon">👩‍⚕️</div>
+                <div class="role-name">Caregiver Command</div>
+                <div class="role-text">Analyze health trends with Clara and monitor patient logs.</div>
+            </div>
+        """, unsafe_allow_html=True)
+        if st.button("Access Caregiver View", use_container_width=True, type="primary"):
             st.session_state.auth["role"] = "caregiver"
             st.rerun()
+            
     st.stop()
-
 # --- 4. SIDEBAR NAVIGATION ---
 cid, cname, role = st.session_state.auth["cid"], st.session_state.auth["name"], st.session_state.auth["role"]
 
@@ -173,3 +210,4 @@ elif mode == "Analytics":
 elif mode == "Memory Match":
     st.title("🧩 Memory Match")
     st.info("The 3D memory game logic is ready to be pasted here.")
+
