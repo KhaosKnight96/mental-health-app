@@ -1,118 +1,102 @@
 import streamlit as st
 import pandas as pd
-import datetime
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 
-# --- 1. SETTINGS ---
-st.set_page_config(page_title="Health Bridge Portal", layout="wide")
+# --- SETTINGS ---
+st.set_page_config(page_title="Health Bridge", layout="wide")
 
-st.markdown("""
-<style>
-    .stApp { background-color: #0F172A !important; color: #F8FAFC !important; }
-    [data-testid="stSidebar"] { background-color: #1E293B !important; border-right: 1px solid #334155; }
-    .portal-card { background: #1E293B; padding: 25px; border-radius: 20px; border: 1px solid #334155; margin-bottom: 20px; }
-    h1, h2, h3, p, label { color: #F8FAFC !important; }
-    .stButton>button { border-radius: 12px !important; font-weight: 600 !important; }
-</style>
-""", unsafe_allow_html=True)
-
-# --- 2. CONNECTIONS ---
+# --- CONNECTIONS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
 if "auth" not in st.session_state:
-    st.session_state.auth = {"logged_in": False, "cid": None, "name": None}
+    st.session_state.auth = {"logged_in": False, "cid": None}
 
-def get_clean_users():
-    try:
-        df = conn.read(worksheet="Users", ttl=0)
-        df.columns = [str(c).strip() for c in df.columns]
-        target = [c for c in df.columns if c.lower().replace(" ", "") == "highscore"]
-        if target:
-            df = df.rename(columns={target[0]: "HighScore"})
-            df['HighScore'] = pd.to_numeric(df['HighScore'], errors='coerce').fillna(0).astype(int)
-        return df
-    except: return pd.DataFrame()
+def fetch_latest_data():
+    """Forces a fresh read from Google Sheets bypasses all caching."""
+    df = conn.read(worksheet="Users", ttl=0)
+    df.columns = [str(c).strip() for c in df.columns]
+    # Ensure HighScore exists and is a number
+    if 'HighScore' not in df.columns:
+        df['HighScore'] = 0
+    df['HighScore'] = pd.to_numeric(df['HighScore'], errors='coerce').fillna(0).astype(int)
+    return df
 
-# --- 3. THE ACTUAL SYNC LOGIC (FIXED) ---
-qp = st.query_params
-if "save_score" in qp and st.session_state.auth.get("logged_in"):
-    try:
-        new_score = int(float(qp["save_score"]))
-        udf = get_clean_users()
-        cid = str(st.session_state.auth['cid'])
-        user_mask = udf['Username'].astype(str) == cid
-        
-        if any(user_mask):
-            idx = udf.index[user_mask][0]
-            current_best = int(udf.at[idx, 'HighScore'])
-            if new_score > current_best:
-                udf.at[idx, 'HighScore'] = new_score
-                conn.update(worksheet="Users", data=udf)
-                st.cache_data.clear()
-                st.toast(f"🏆 Record Saved: {new_score}!", icon="🔥")
-            else:
-                st.toast(f"Final Score: {new_score}", icon="🎮")
-    except Exception as e:
-        st.error(f"Sync Error: {e}")
+# --- THE SYNC ENGINE (TRIGGERED BY URL) ---
+params = st.query_params
+if "update_score" in params and st.session_state.auth["logged_in"]:
+    new_score = int(float(params["update_score"]))
+    cid = str(st.session_state.auth['cid'])
     
-    # Clear params and go to dashboard
+    # Fetch fresh data
+    df = fetch_latest_data()
+    user_idx = df.index[df['Username'].astype(str) == cid]
+    
+    if not user_idx.empty:
+        idx = user_idx[0]
+        current_best = int(df.at[idx, 'HighScore'])
+        
+        if new_score > current_best:
+            df.at[idx, 'HighScore'] = new_score
+            try:
+                # PUSH TO GOOGLE
+                conn.update(worksheet="Users", data=df)
+                st.cache_data.clear() # Wipe Streamlit's local memory
+                st.success(f"Successfully saved {new_score} to Google Sheets!")
+            except Exception as e:
+                st.error(f"WRITE FAILED: Ensure your service account email is an 'Editor' on the Google Sheet. Error: {e}")
+    
+    # Clear URL and refresh UI
     st.query_params.clear()
     st.rerun()
 
-# --- 4. LOGIN ---
+# --- APP UI ---
 if not st.session_state.auth["logged_in"]:
-    _, col, _ = st.columns([1, 1.2, 1])
-    with col:
-        st.title("🧠 Health Bridge")
-        u = st.text_input("Couple ID")
-        p = st.text_input("Password", type="password")
-        if st.button("Sign In"):
-            udf = get_clean_users()
-            m = udf[(udf['Username'].astype(str) == u) & (udf['Password'].astype(str) == p)]
-            if not m.empty:
-                st.session_state.auth.update({"logged_in": True, "cid": u, "name": m.iloc[0]['Fullname']})
-                st.rerun()
+    # Login Logic
+    st.title("🧠 Health Bridge Login")
+    u = st.text_input("Couple ID")
+    p = st.text_input("Password", type="password")
+    if st.button("Enter"):
+        df = fetch_latest_data()
+        match = df[(df['Username'].astype(str) == u) & (df['Password'].astype(str) == p)]
+        if not match.empty:
+            st.session_state.auth.update({"logged_in": True, "cid": u})
+            st.rerun()
     st.stop()
 
-# --- 5. NAVIGATION ---
-with st.sidebar:
-    st.title("🌉 Health Bridge")
-    page = st.radio("Navigation", ["Dashboard", "Snake"])
-    if st.button("Logout"):
-        st.session_state.auth = {"logged_in": False, "cid": None, "name": None}
+# --- NAVIGATION ---
+page = st.sidebar.radio("Navigation", ["Dashboard", "Play Snake"])
+
+if page == "Dashboard":
+    df = fetch_latest_data()
+    row = df[df['Username'].astype(str) == str(st.session_state.auth['cid'])]
+    score = row['HighScore'].values[0] if not row.empty else 0
+    st.title("🏠 Dashboard")
+    st.metric("Your Current High Score", f"{score} pts")
+    if st.button("Force Refresh Data"):
+        st.cache_data.clear()
         st.rerun()
 
-# --- 6. PAGES ---
-if page == "Dashboard":
-    st.header(f"Welcome, {st.session_state.auth['name']}")
-    udf = get_clean_users()
-    row = udf[udf['Username'].astype(str) == str(st.session_state.auth['cid'])]
-    pb = int(row['HighScore'].values[0]) if not row.empty else 0
-    st.metric("Personal Best", f"{pb} pts")
-
-elif page == "Snake":
+elif page == "Play Snake":
     st.title("🐍 Zen Snake")
+    st.info("Beat your score and click 'Save & Exit' to update the Google Sheet.")
     
-    # Game Logic
     SNAKE_HTML = """
-    <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:20px;">
-        <canvas id="s" width="400" height="400" style="border:4px solid #38BDF8; background:#0F172A;"></canvas>
-        <div id="o" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,0.9); padding:30px; border-radius:20px; text-align:center;">
-            <h1 style="color:white; font-family:sans-serif;">GAME OVER</h1>
-            <p id="fs" style="color:cyan; font-size:24px;"></p>
-            <button id="sb" style="padding:10px 20px; background:#38BDF8; color:white; border:none; border-radius:5px; cursor:pointer;">💾 SAVE & EXIT</button>
+    <div style="display:flex; flex-direction:column; align-items:center;">
+        <canvas id="game" width="400" height="400" style="border:5px solid #38BDF8; background:#000;"></canvas>
+        <div id="menu" style="display:none; text-align:center; margin-top:20px;">
+            <h1 style="color:white;">GAME OVER</h1>
+            <button id="save" style="padding:15px 30px; font-size:20px; background:#38BDF8; color:white; border:none; border-radius:10px; cursor:pointer;">💾 SAVE & EXIT</button>
         </div>
     </div>
     <script>
-    const c=document.getElementById("s"), x=c.getContext("2d"), b=20;
-    let s=0, d, n=[{x:9*b,y:10*b}], f={x:Math.floor(Math.random()*19)*b, y:Math.floor(Math.random()*19)*b};
-    
-    document.getElementById("sb").onclick = () => {
-        // This is the specific fix for Streamlit Cloud/Iframe environments
+    const c=document.getElementById("game"), ctx=c.getContext("2d"), box=20;
+    let score=0, d, snake=[{x:9*box, y:10*box}], food={x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box};
+
+    document.getElementById("save").onclick = () => {
         const url = new URL(window.parent.location.href);
-        url.searchParams.set('save_score', s);
+        url.searchParams.set('update_score', score);
         window.parent.location.href = url.href;
     };
 
@@ -124,21 +108,20 @@ elif page == "Snake":
     };
 
     function draw() {
-        x.fillStyle="#0F172A"; x.fillRect(0,0,400,400);
-        x.fillStyle="red"; x.fillRect(f.x,f.y,b,b);
-        n.forEach((p,i)=>{ x.fillStyle=i==0?"cyan":"blue"; x.fillRect(p.x,p.y,b,b); });
-        let hX=n[0].x, hY=n[0].y;
-        if(d=="LEFT") hX-=b; if(d=="UP") hY-=b; if(d=="RIGHT") hX+=b; if(d=="DOWN") hY+=b;
-        if(hX==f.x && hY==f.y){ s++; f={x:Math.floor(Math.random()*19)*b, y:Math.floor(Math.random()*19)*b}; }
-        else if(d) n.pop();
-        let h={x:hX,y:hY};
-        if(hX<0||hX>=400||hY<0||hY>=400||(d && n.some(z=>z.x==h.x&&z.y==h.y))){
-            clearInterval(g); document.getElementById("fs").innerText="Score: "+s;
-            document.getElementById("o").style.display="block";
+        ctx.fillStyle="black"; ctx.fillRect(0,0,400,400);
+        ctx.fillStyle="red"; ctx.fillRect(food.x, food.y, box, box);
+        snake.forEach((p,i)=>{ ctx.fillStyle=i==0?"cyan":"white"; ctx.fillRect(p.x,p.y,box,box); });
+        let hX=snake[0].x, hY=snake[0].y;
+        if(d=="LEFT") hX-=box; if(d=="UP") hY-=box; if(d=="RIGHT") hX+=box; if(d=="DOWN") hY+=box;
+        if(hX==food.x && hY==food.y){ score++; food={x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}; }
+        else if(d) snake.pop();
+        let h={x:hX, y:hY};
+        if(hX<0||hX>=400||hY<0||hY>=400||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){
+            clearInterval(g); document.getElementById("menu").style.display="block";
         }
-        if(d) n.unshift(h);
+        if(d) snake.unshift(h);
     }
-    let g = setInterval(draw,100);
+    let g = setInterval(draw, 100);
     </script>
     """
-    st.components.v1.html(SNAKE_HTML, height=500)
+    st.components.v1.html(SNAKE_HTML, height=600)
