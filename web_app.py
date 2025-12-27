@@ -4,7 +4,7 @@ from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 
-# --- 1. APP CONFIG & MOBILE OPTIMIZATION ---
+# --- 1. CONFIG & MOBILE OPTIMIZATION ---
 st.set_page_config(page_title="Health Bridge", layout="wide", initial_sidebar_state="collapsed")
 
 st.markdown("""
@@ -14,9 +14,7 @@ st.markdown("""
     .portal-card { background: #1E293B; padding: 25px; border-radius: 20px; border: 1px solid #334155; margin-bottom: 20px; }
     .stButton>button { border-radius: 12px; font-weight: 600; height: 3.5em; width: 100%; border: none; }
     .stSlider [data-baseweb="slider"] div { background-color: #38BDF8; }
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
 </style>
 <head>
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -24,7 +22,7 @@ st.markdown("""
 </head>
 """, unsafe_allow_html=True)
 
-# --- 2. CONNECTIONS & STATE ---
+# --- 2. CONNECTIONS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
@@ -64,22 +62,23 @@ with st.sidebar:
         st.session_state.auth = {"logged_in": False, "cid": None}
         st.rerun()
 
-# --- 5. DASHBOARD (COOPER - THE FRIEND + 11-POINT ENERGY SLIDER) ---
+# --- 5. DASHBOARD (COOPER + 11-POINT ENERGY SCALE) ---
 if nav == "Dashboard":
     st.title(f"Hi {st.session_state.auth['name']}! 👋")
     col_vibe, col_chat = st.columns([1, 1.5])
     
     with col_vibe:
         st.markdown('<div class="portal-card"><h3>⚡ Energy Status</h3>', unsafe_allow_html=True)
-        # 11 Point System: 1 is worst, 6 is neutral, 11 is best
-        energy_val = st.slider("Battery Level", 1, 11, 6)
+        # 11-point system (1 to 11)
+        energy_val = st.slider("Energy Scale (1=Worst, 6=Neutral, 11=Best)", 1, 11, 6)
         
+        # Emoji Logic for 11 points
         energy_emojis = {
-            1:"🪫", 2:"🏚️", 3:"🥱", 4:"😫", 5:"🙁", 
-            6:"🔋", 
-            7:"🙂", 8:"😊", 9:"⚡", 10:"🚀", 11:"☀️"
+            1: "🚨", 2: "🪫", 3: "😫", 4: "🥱", 5: "🙁", 
+            6: "😐", 
+            7: "🙂", 8: "😊", 9: "⚡", 10: "🚀", 11: "☀️"
         }
-        current_emoji = energy_emojis.get(energy_val, "🔋")
+        current_emoji = energy_emojis.get(energy_val, "😐")
         
         st.markdown(f"<h1 style='text-align:center; font-size:80px; margin: 10px 0;'>{current_emoji}</h1>", unsafe_allow_html=True)
         status_text = "Neutral" if energy_val == 6 else ("Optimal" if energy_val > 6 else "Low")
@@ -87,18 +86,19 @@ if nav == "Dashboard":
         
         if st.button("💾 Sync Energy"):
             try:
-                # Header is explicitly "Energy" as requested
+                # Header set as "Energy" as requested
                 new_entry = pd.DataFrame([{
                     "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), 
                     "CoupleID": st.session_state.auth['cid'], 
-                    "Energy": energy_val
+                    "Energy": energy_val, 
+                    "Emoji": current_emoji
                 }])
                 existing_data = get_data("EnergyLogs")
                 updated_data = pd.concat([existing_data, new_entry], ignore_index=True)
                 conn.update(worksheet="EnergyLogs", data=updated_data)
-                st.success("Energy synced to Clara!")
+                st.success("Energy Synced to Sheets!")
                 st.balloons()
-            except: st.error("Error: Check if worksheet 'EnergyLogs' exists with column 'Energy'.")
+            except: st.error("Sync Error: Ensure 'EnergyLogs' sheet has an 'Energy' header.")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_chat:
@@ -106,16 +106,20 @@ if nav == "Dashboard":
         container = st.container(height=350)
         for m in st.session_state.cooper_logs:
             with container.chat_message(m["role"]): st.write(m["content"])
+        
         if p := st.chat_input("Hey Cooper..."):
             st.session_state.cooper_logs.append({"role": "user", "content": p})
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a warm, casual friend to the patient."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
+            res = client.chat.completions.create(
+                model="llama-3.3-70b-versatile", 
+                messages=[{"role":"system","content":"You are Cooper, a warm, casual friend to the patient."}]+st.session_state.cooper_logs[-5:]
+            ).choices[0].message.content
             st.session_state.cooper_logs.append({"role": "assistant", "content": res})
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 6. CAREGIVER SECTION (CLARA - THE ANALYST) ---
+# --- 6. CAREGIVER SECTION (CLARA) ---
 elif nav == "Caregiver Insights":
-    st.title("📊 Clara Analyst Section")
+    st.title("📊 Clara Analysis")
     df_users = get_data("Users")
     user_row = df_users[df_users['Username'].astype(str) == str(st.session_state.auth['cid'])]
     
@@ -130,14 +134,17 @@ elif nav == "Caregiver Insights":
         container = st.container(height=400)
         for m in st.session_state.clara_logs:
             with container.chat_message(m["role"]): st.write(m["content"])
-        if p := st.chat_input("Request technical analysis..."):
+        if p := st.chat_input("Analyze energy trends..."):
             st.session_state.clara_logs.append({"role": "user", "content": p})
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara, a medical data analyst. Professional and precise."}]+st.session_state.clara_logs[-5:]).choices[0].message.content
+            res = client.chat.completions.create(
+                model="llama-3.3-70b-versatile", 
+                messages=[{"role":"system","content":"You are Clara, a precise data analyst."}]+st.session_state.clara_logs[-5:]
+            ).choices[0].message.content
             st.session_state.clara_logs.append({"role": "assistant", "content": res})
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 7. GAMES SECTION ---
+# --- 7. GAMES SECTION (SNAKE & MEMORY MATCH) ---
 elif nav == "Games":
     if st.button("⬅️ Back to Dashboard"): st.rerun()
     game_type = st.radio("Select Game", ["Zen Snake", "Memory Match"], horizontal=True)
@@ -155,12 +162,10 @@ elif nav == "Games":
         let score=0, d, snake=[{x:9*box, y:10*box}], food={x:5*box, y:5*box};
         const mc = new Hammer(c);
         mc.get('swipe').set({ direction: Hammer.DIRECTION_ALL });
-        mc.on("swipeleft", () => { if(d!="RIGHT") d="LEFT" }); mc.on("swiperight", () => { if(d!="LEFT") d="RIGHT" });
-        mc.on("swipeup", () => { if(d!="DOWN") d="UP" }); mc.on("swipedown", () => { if(d!="UP") d="DOWN" });
-        document.onkeydown = e => { if([37,38,39,40].includes(e.keyCode)) e.preventDefault();
-            if(e.keyCode==37 && d!="RIGHT") d="LEFT"; if(e.keyCode==38 && d!="DOWN") d="UP";
-            if(e.keyCode==39 && d!="LEFT") d="RIGHT"; if(e.keyCode==40 && d!="UP") d="DOWN";
-        };
+        mc.on("swipeleft", () => { if(d!="RIGHT") d="LEFT" }); 
+        mc.on("swiperight", () => { if(d!="LEFT") d="RIGHT" });
+        mc.on("swipeup", () => { if(d!="DOWN") d="UP" }); 
+        mc.on("swipedown", () => { if(d!="UP") d="DOWN" });
         function draw() {
             ctx.fillStyle="black"; ctx.fillRect(0,0,320,320);
             ctx.fillStyle="#F87171"; ctx.fillRect(food.x, food.y, box, box);
