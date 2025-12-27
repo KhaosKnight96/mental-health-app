@@ -207,13 +207,96 @@ with main_nav[1]:
             save_chat_to_sheets("Clara", "assistant", res)
             st.rerun()
 
-# --- 7. GAMES (Simplified placeholders for GitHub copy) ---
+# --- 7. GAMES ---
 with main_nav[2]:
-    st.radio("Select Activity", ["Modern Snake", "Memory Match"], horizontal=True)
-    st.info("Game engine active. Interact to boost cognitive scores.")
+    gt = st.radio("Select Activity", ["Modern Snake", "Memory Match"], horizontal=True)
+    
+    if gt == "Modern Snake":
+        # We use a double-bracket approach for the f-string to allow JS brackets to exist
+        SNAKE_HTML = f"""
+        <div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px;">
+            <canvas id="s" width="300" height="300" style="border:4px solid #38BDF8; background:#0F172A; border-radius:10px;"></canvas>
+            <h2 id="st" style="color:#38BDF8; font-family:sans-serif;">Score: 0</h2>
+        </div>
+        <script>
+        const canvas=document.getElementById("s"), ctx=canvas.getContext("2d"), box=15;
+        let score=0, d, snake=[{{x:10*box, y:10*box}}], food={{x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}};
+        
+        window.addEventListener("keydown", e => {{ 
+            if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) e.preventDefault();
+            if(e.code=="ArrowLeft" && d!="RIGHT") d="LEFT"; if(e.code=="ArrowUp" && d!="DOWN") d="UP";
+            if(e.code=="ArrowRight" && d!="LEFT") d="RIGHT"; if(e.code=="ArrowDown" && d!="UP") d="DOWN"; 
+        }});
+
+        function draw() {{
+            ctx.fillStyle="#0F172A"; ctx.fillRect(0,0,300,300);
+            ctx.fillStyle = "#F87171"; ctx.beginPath(); ctx.arc(food.x+box/2, food.y+box/2, box/3, 0, Math.PI*2); ctx.fill();
+            snake.forEach((p,i)=>{{ ctx.fillStyle= i==0 ? "#38BDF8" : "rgba(56, 189, 248, "+(1-i/snake.length)+")"; ctx.fillRect(p.x, p.y, box-1, box-1); }});
+            
+            let hX=snake[0].x, hY=snake[0].y;
+            if(d=="LEFT") hX-=box; if(d=="UP") hY-=box; if(d=="RIGHT") hX+=box; if(d=="DOWN") hY+=box;
+
+            if(hX==food.x && hY==food.y){{
+                score++; document.getElementById("st").innerText="Score: "+score;
+                food={{x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}};
+            }} else if(d) snake.pop();
+
+            let h={{x:hX, y:hY}};
+            if(hX<0||hX>=300||hY<0||hY>=300||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){{
+                clearInterval(game);
+                alert("Game Over! Score: " + score);
+            }}
+            if(d) snake.unshift(h);
+        }}
+        let game = setInterval(draw, 100);
+        </script>
+        """
+        st.components.v1.html(SNAKE_HTML, height=500)
+    
+    elif gt == "Memory Match":
+        MEMORY_HTML = """
+        <style>
+            .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; max-width: 320px; margin: auto; }
+            .card { height: 75px; position: relative; transform-style: preserve-3d; transition: transform 0.5s; cursor: pointer; }
+            .card.flipped { transform: rotateY(180deg); }
+            .face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 25px; border: 2px solid #334155; }
+            .front { background: #1E293B; border-color: #38BDF8; }
+            .back { background: #334155; transform: rotateY(180deg); color: white; }
+        </style>
+        <div class="grid" id="g"></div>
+        <script>
+            const icons = ['🍎','🍎','💎','💎','🌟','🌟','🚀','🚀','🌈','🌈','🔥','🔥','🍀','🍀','🎁','🎁'];
+            let shuffled = icons.sort(() => 0.5 - Math.random());
+            let flipped = [], lock = false, matches = 0;
+            const board = document.getElementById('g');
+            shuffled.forEach(icon => {
+                const card = document.createElement('div'); card.className = 'card';
+                card.innerHTML = `<div class="face front"></div><div class="face back">${icon}</div>`;
+                card.dataset.icon = icon;
+                card.onclick = function() {
+                    if(lock || this.classList.contains('flipped')) return;
+                    this.classList.add('flipped'); flipped.push(this);
+                    if(flipped.length === 2) {
+                        lock = true;
+                        if(flipped[0].dataset.icon === flipped[1].dataset.icon) {
+                            matches++; flipped = []; lock = false;
+                            if(matches === 8) alert("Match Complete!");
+                        } else {
+                            setTimeout(() => { 
+                                flipped.forEach(c => c.classList.remove('flipped')); 
+                                flipped = []; lock = false; 
+                            }, 800);
+                        }
+                    }
+                }; board.appendChild(card);
+            });
+        </script>
+        """
+        st.components.v1.html(MEMORY_HTML, height=450)
 
 # --- 8. LOGOUT ---
 with main_nav[3]:
     if st.button("Confirm Logout"):
         st.session_state.auth = {"logged_in": False}
         st.rerun()
+
