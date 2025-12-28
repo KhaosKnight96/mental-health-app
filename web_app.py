@@ -28,44 +28,38 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CORE LOGIC & CONNECTIONS ---
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-if "auth" not in st.session_state: st.session_state.auth = {"in": False, "mid": None, "role": "user"}
-if "cooper_logs" not in st.session_state: st.session_state.cooper_logs = []
-if "clara_logs" not in st.session_state: st.session_state.clara_logs = []
-
-def get_data(ws):
+# --- UPDATE TO SECTION 2: CORE LOGIC ---
+def get_ai_sentiment(text):
+    """Hidden call to score sentiment per user message (-5 to 5)"""
     try:
-        df = conn.read(worksheet=ws, ttl=0)
-        df.columns = [str(c).strip().lower() for c in df.columns]
-        return df
-    except: return pd.DataFrame()
+        client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
+        res = client.chat.completions.create(
+            model="llama-3.1-8b-instant", # Fast model for background task
+            messages=[
+                {"role": "system", "content": "Score sentiment of user text from -5 (distress) to 5 (thriving). Output ONLY the integer."},
+                {"role": "user", "content": text}
+            ]
+        )
+        return int(res.choices[0].message.content.strip())
+    except: return 0
 
 def save_log(agent, role, content):
     try:
-        new_row = pd.DataFrame([{
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "memberid": st.session_state.auth['mid'],
-            "agent": agent, "role": role, "content": content
-        }])
-        conn.update(worksheet="ChatLogs", data=pd.concat([get_data("ChatLogs"), new_row], ignore_index=True))
-    except: pass
-
-def get_ai_response(agent, prompt, history):
-    try:
-        client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
-        if agent == "Cooper":
-            sys = "You are Cooper, a warm, empathetic friend. Listen and support deeply."
-        else:
-            energy_data = get_data("Sheet1")
-            user_data = energy_data[energy_data['memberid'] == st.session_state.auth['mid']].tail(5).to_string()
-            sys = f"You are Clara, a logical data analyst. Analyze user energy: {user_data}"
+        # Calculate sentiment ONLY for user messages
+        sent_score = get_ai_sentiment(content) if role == "user" else 0
         
-        full_history = [{"role": "system", "content": sys}] + history[-5:] + [{"role": "user", "content": prompt}]
-        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history)
-        return res.choices[0].message.content
-    except Exception as e: return f"AI Error: {e}"
+        new_row = pd.DataFrame([{
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "memberid": st.session_state.auth['mid'],
+            "agent": agent, 
+            "role": role, 
+            "content": content,
+            "sentiment": sent_score  # Ensure your GSheet has this column header!
+        }])
+        # Use TTL=0 to ensure we don't overwrite with cached data
+        all_logs = get_data("ChatLogs")
+        conn.update(worksheet="ChatLogs", data=pd.concat([all_logs, new_row], ignore_index=True))
+    except: pass
 
 # --- 3. LOGIN GATE ---
 if not st.session_state.auth["in"]:
@@ -252,61 +246,66 @@ with tabs[2]:
                 });
             } f_init();
         </script>""", height=450)
-# --- 6. ADMIN (AI SENTIMENT & LOGS) ---
+# --- UPDATE TO SECTION 6: ADMIN ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        admin_sub_tabs = st.tabs(["📋 Chat Explorer", "🧠 AI Sentiment Pulse", "🏆 Activity"])
+        admin_sub_tabs = st.tabs(["📋 Chat Explorer", "📈 Sentiment Trends", "🏆 Activity"])
         
         logs_df = get_data("ChatLogs")
         if not logs_df.empty:
-            logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'], errors='coerce', format='mixed')
+            logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'], errors='coerce')
+            # Ensure sentiment column is numeric
+            if 'sentiment' in logs_df.columns:
+                logs_df['sentiment'] = pd.to_numeric(logs_df['sentiment'], errors='coerce').fillna(0)
 
-            # --- TAB 1: LOGS ---
+            # --- TAB 1: LOGS (Enhanced with Filter) ---
             with admin_sub_tabs[0]:
-                search_q = st.text_input("🔍 Search Logs", key="admin_search")
-                st.dataframe(logs_df.sort_values('timestamp', ascending=False), use_container_width=True)
+                c1, c2 = st.columns(2)
+                u_filter = c1.selectbox("Filter User", ["All"] + list(logs_df['memberid'].unique()))
+                f_logs = logs_df if u_filter == "All" else logs_df[logs_df['memberid'] == u_filter]
+                st.dataframe(f_logs.sort_values('timestamp', ascending=False), use_container_width=True)
 
-            # --- TAB 2: AI SENTIMENT PULSE ---
+            # --- TAB 2: SENTIMENT TRENDS (The Graph) ---
             with admin_sub_tabs[1]:
-                st.subheader("AI-Driven Emotional Analysis")
+                st.subheader("📈 Community Emotional Pulse")
+                user_msgs = logs_df[logs_df['role'] == 'user'].copy()
                 
-                if st.button("🔄 Run AI Sentiment Analysis"):
-                    with st.spinner("Clara is analyzing emotional patterns..."):
-                        # Get only the last 20 user messages for analysis
-                        user_messages = logs_df[logs_df['role'] == 'user'].tail(20)
-                        
-                        client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
-                        
-                        # Prepare the prompt for the AI Analyst
-                        analysis_prompt = f"Analyze the following chat logs and provide a sentiment score for each user. Score from -5 (distressed/angry) to +5 (happy/thriving). Format: 'UserID: Score'. Logs: {user_messages[['memberid', 'content']].to_string()}"
-                        
-                        res = client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=[{"role": "system", "content": "You are a clinical sentiment analyst. Output only the scores per user."},
-                                      {"role": "user", "content": analysis_prompt}]
-                        )
-                        
-                        st.markdown("### Clara's Latest Insights:")
-                        st.write(res.choices[0].message.content)
-                        
-                        # Note: In a production app, you would parse this text back into a chart.
-                        # For now, this provides the raw AI reasoning.
-                
-                st.info("The AI looks for context like burnout, anxiety, or positive growth that keyword filters miss.")
+                if not user_msgs.empty and 'sentiment' in user_msgs.columns:
+                    # Daily Average Trend
+                    trend_df = user_msgs.groupby(user_msgs['timestamp'].dt.date)['sentiment'].mean().reset_index()
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=trend_df['timestamp'], y=trend_df['sentiment'],
+                        mode='lines+markers', line=dict(color='#38BDF8', width=3),
+                        marker=dict(size=8), name="Avg Mood"
+                    ))
+                    fig.update_layout(
+                        template="plotly_dark", 
+                        yaxis_title="Score (-5 to +5)",
+                        yaxis=dict(range=[-5.5, 5.5]),
+                        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
 
-            # --- TAB 3: ACTIVITY LEADERBOARD ---
+                    # Individual Heatmap
+                    st.markdown("### 👤 Member Health Status")
+                    user_health = user_msgs.groupby('memberid')['sentiment'].mean().reset_index()
+                    user_health['Status'] = user_health['sentiment'].apply(
+                        lambda x: "🟢 Thriving" if x > 1 else ("🔴 Struggling" if x < -1 else "🟡 Stable")
+                    )
+                    st.table(user_health.sort_values('sentiment'))
+
+            # --- TAB 3: ACTIVITY (Leaderboard) ---
             with admin_sub_tabs[2]:
-                st.subheader("Community Engagement")
                 rank_df = logs_df.groupby('memberid').size().reset_index(name='Total Interactions')
-                st.plotly_chart(go.Figure(go.Bar(x=rank_df['memberid'], y=rank_df['Total Interactions'], marker_color='#38BDF8')), use_container_width=True)
-
-    else:
-        st.warning("Admin access required.")
+                st.plotly_chart(go.Figure(go.Bar(x=rank_df['memberid'], y=rank_df['Total Interactions'], marker_color='#6366F1')), use_container_width=True)
 # --- 7. LOGOUT ---
 with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
