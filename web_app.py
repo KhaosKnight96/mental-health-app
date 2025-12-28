@@ -229,9 +229,64 @@ with tabs[2]:
         st.components.v1.html(JS_CORE + """<div class="game-container"><div class="score-board">Score: <span id="s2048">0</span></div><div id="grid2048" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; background:#0F172A; padding:10px; border-radius:10px; position:relative; width:280px; margin:auto;"><div id="go2048" class="overlay" style="display:none;"><h1 style="color:#F87171;">GAME OVER</h1><button class="game-btn" onclick="init2048()">New Game</button></div></div></div><script>let board, score, run=false; const g=document.getElementById("grid2048"); function init2048(){ board=Array(16).fill(0); score=0; run=true; document.getElementById("go2048").style.display="none"; addT(); addT(); draw(); } function addT(){ let e=board.map((v,i)=>v===0?i:null).filter(v=>v!==null); if(e.length) board[e[Math.floor(Math.random()*e.length)]]=Math.random()<0.9?2:4; } function draw(){ [...g.querySelectorAll(".t")].forEach(t=>t.remove()); board.forEach(v=>{ const t=document.createElement("div"); t.className="t"; t.style=`height:60px; display:flex; align-items:center; justify-content:center; border-radius:5px; font-weight:bold; background:${getCol(v)}; color:${v>4?"#fff":"#0F172A"}`; t.innerText=v||""; g.appendChild(t); }); document.getElementById("s2048").innerText=score; } function getCol(v){ const c={0:"#334155", 2:"#eee4da", 4:"#ede0c8", 8:"#f2b179", 16:"#f59563", 32:"#f67c5f", 64:"#f65e3b", 128:"#edcf72", 256:"#edcc61"}; return c[v]||"#edc22e"; } function move(d){ if(!run) return; let p=JSON.stringify(board); for(let i=0;i<4;i++){ let r=[]; for(let j=0;j<4;j++) r.push(d=="L"||d=="R"?board[i*4+j]:board[j*4+i]); if(d=="R"||d=="D") r.reverse(); let a=r.filter(v=>v); for(let k=0;k<a.length-1;k++) if(a[k]==a[k+1]){a[k]*=2; score+=a[k]; a[k+1]=0; snd(440,"sine",0.05);} a=a.filter(v=>v); while(a.length<4) a.push(0); if(d=="R"||d=="D") a.reverse(); for(let j=0;j<4;j++) if(d=="L"||d=="R") board[i*4+j]=a[j]; else board[j*4+i]=a[j]; } if(p!=JSON.stringify(board)){ addT(); draw(); if(!board.includes(0)){ run=false; document.getElementById("go2048").style.display="flex"; } } } window.addEventListener("keydown", e=>{ if(e.key.includes("Arrow")) move(e.key[5][0]); }); init2048();</script>""", height=500)
     elif game_mode == "Memory Pattern":
         st.components.v1.html(JS_CORE + """<div class="game-container"><div class="score-board">Level: <span id="m-lvl">1</span></div><div id="m-board" style="display:grid; grid-template-columns:repeat(2,100px); gap:15px; justify-content:center; position:relative;"><div onclick="p(0)" id="b0" style="height:100px; background:#ef4444; opacity:0.6; border-radius:15px;"></div><div onclick="p(1)" id="b1" style="height:100px; background:#3b82f6; opacity:0.6; border-radius:15px;"></div><div onclick="p(2)" id="b2" style="height:100px; background:#22c55e; opacity:0.6; border-radius:15px;"></div><div onclick="p(3)" id="b3" style="height:100px; background:#eab308; opacity:0.6; border-radius:15px;"></div><div id="m-go" class="overlay"><h2 id="m-msg">Simon Says</h2><button class="game-btn" onclick="start()">Start Game</button></div></div></div><script>let seq=[], usr=[], lv=1, wait=true; const f=[261,329,392,523]; function start(){ seq=[]; lv=1; document.getElementById("m-lvl").innerText=lv; document.getElementById("m-go").style.display="none"; next(); } function next(){ usr=[]; wait=true; seq.push(Math.floor(Math.random()*4)); show(); } async function show(){ for(let i of seq){ await new Promise(r=>setTimeout(r,600)); flash(i); } wait=false; } function flash(i){ snd(f[i],"triangle",0.3); document.getElementById("b"+i).style.opacity="1"; setTimeout(()=>document.getElementById("b"+i).style.opacity="0.6",300); } function p(i){ if(wait)return; flash(i); usr.push(i); if(usr[usr.length-1]!=seq[usr.length-1]){ snd(100,"sawtooth",0.5); document.getElementById("m-msg").innerText="TRY AGAIN"; document.getElementById("m-go").style.display="flex"; } else if(usr.length==seq.length){ lv++; document.getElementById("m-lvl").innerText=lv; setTimeout(next,800); } } </script>""", height=450)
-    elif game_mode == "Flash Match":
-        st.components.v1.html(JS_CORE + """<div class="game-container"><div class="score-board">Level: <span id="f-lvl">1</span></div><div id="f-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;"></div><div id="f-go" class="overlay" style="display:none;"><h1>WELL DONE!</h1><button class="game-btn" onclick="f_init()">Next Level</button></div></div><script>let p=2, m=0, f=[]; const icons=['🍎','🚀','💎','🌟','🔥','🌈','🍕','⚽']; function f_init(){ m=0; f=[]; document.getElementById("f-go").style.display="none"; const g=document.getElementById("f-grid"); g.innerHTML=""; let d=[...icons.slice(0,p), ...icons.slice(0,p)].sort(()=>Math.random()-0.5); d.forEach(icon=>{ const c=document.createElement("div"); c.style="height:60px; background:#334155; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer"; c.onclick=()=>{ if(f.length<2 && !c.innerText){ c.innerText=icon; c.style.background="#38BDF8"; snd(400,"sine",0.1); f.push({c,icon}); if(f.length==2){ if(f[0].icon==f[1].icon){ m++; f=[]; if(m==p){ p=Math.min(p+1,8); document.getElementById("f-go").style.display="flex"; } } else { setTimeout(()=>{ f.forEach(x=>{x.c.innerText=""; x.c.style.background="#334155"}); f=[]; },500); } } } }; g.appendChild(c); }); } f_init();</script>""", height=450)
+   elif game_mode == "Flash Match":
+        st.components.v1.html(JS_CORE + """
+        <div class="game-container">
+            <div class="score-board">Level: <span id="f-lvl">1</span></div>
+            <div id="f-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;"></div>
+            <div id="f-go" class="overlay" style="display:none;">
+                <h1>WELL DONE!</h1>
+                <button class="game-btn" onclick="f_next()">Next Level</button>
+            </div>
+        </div>
+        <script>
+        let p=2, m=0, f=[], lvl=1; 
+        const icons=['🍎','🚀','💎','🌟','🔥','🌈','🍕','⚽','🍀','👾','🦄','🐯'];
+        
+        function f_init(){
+            m=0; f=[];
+            document.getElementById("f-go").style.display="none";
+            document.getElementById("f-lvl").innerText = lvl; // This updates the UI
+            const g=document.getElementById("f-grid");
+            g.innerHTML="";
+            
+            let d=[...icons.slice(0,p), ...icons.slice(0,p)].sort(()=>Math.random()-0.5);
+            d.forEach(icon=>{
+                const c=document.createElement("div");
+                c.style="height:60px; background:#334155; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer";
+                c.onclick=()=>{
+                    if(f.length<2 && !c.innerText){
+                        c.innerText=icon;
+                        c.style.background="#38BDF8";
+                        snd(400,"sine",0.1);
+                        f.push({c,icon});
+                        if(f.length==2){
+                            if(f[0].icon==f[1].icon){
+                                m++; f=[];
+                                if(m==p){
+                                    document.getElementById("f-go").style.display="flex";
+                                }
+                            } else {
+                                setTimeout(()=>{
+                                    f.forEach(x=>{x.c.innerText=""; x.c.style.background="#334155"});
+                                    f=[];
+                                },500);
+                            }
+                        }
+                    }
+                };
+                g.appendChild(c);
+            });
+        }
 
+        function f_next(){
+            lvl++; // Increment the Level number
+            p = Math.min(p + 1, 12); // Increase pairs for difficulty
+            f_init();
+        }
+
+        f_init();
+        </script>""", height=450)
 # --- 6. ADMIN (THE BRIDGE & DATA MANAGEMENT) ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
@@ -315,6 +370,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
