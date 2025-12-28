@@ -178,15 +178,45 @@ with nav[2]:
         </script>"""
         st.components.v1.html(T2048_HTML, height=450)
 
-# --- 8. ADMIN ---
-if st.session_state.auth['role'] == "admin":
+# --- 8. ADMIN PORTAL (FILTER + SEARCH) ---
+if st.session_state.auth["role"] == "admin":
     with nav[-1]:
-        q = st.text_input("🔍 Search Keyword", key="admin_q")
-        df_logs = get_data("ChatLogs")
-        if q and not df_logs.empty:
-            df_logs = df_logs[df_logs['content'].astype(str).str.contains(q, case=False)]
-        st.dataframe(df_logs, use_container_width=True)
+        st.header("🛡️ Admin Chat Explorer")
+        
+        # 1. Fetch Fresh Data
+        logs_df = get_data("ChatLogs")
+        
+        if not logs_df.empty:
+            # 2. Layout Filters in 3 Columns
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                u_f = st.multiselect("Filter by Member ID", options=sorted(logs_df['memberid'].unique().tolist()), key="admin_filter_mid")
+            with c2:
+                a_f = st.multiselect("Filter by Agent", options=logs_df['agent'].unique().tolist(), key="admin_filter_agent")
+            with c3:
+                r_f = st.multiselect("Filter by Role", options=logs_df['role'].unique().tolist(), key="admin_filter_role")
+            
+            # 3. Keyword Search Box
+            q = st.text_input("🔍 Search Keywords in Content", key="admin_search_keyword").strip().lower()
 
-if st.sidebar.button("Logout", key="logout_sidebar"):
-    st.session_state.clear()
-    st.rerun()
+            # 4. Apply Multi-Stage Filtering
+            f_df = logs_df.copy()
+            
+            if u_f:
+                f_df = f_df[f_df['memberid'].isin(u_f)]
+            if a_f:
+                f_df = f_df[f_df['agent'].isin(a_f)]
+            if r_f:
+                f_df = f_df[f_df['role'].isin(r_f)]
+            if q:
+                f_df = f_df[f_df['content'].astype(str).str.lower().str.contains(q)]
+
+            # 5. Display Results
+            st.markdown(f"**Results:** {len(f_df)} entries found")
+            st.dataframe(f_df, use_container_width=True, hide_index=True)
+            
+            # 6. Export Option
+            st.download_button("📥 Export Filtered Logs (CSV)", f_df.to_csv(index=False), "filtered_logs.csv", key="admin_download")
+            
+        else:
+            st.info("No logs found in the Google Sheet.")
