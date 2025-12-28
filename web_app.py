@@ -78,36 +78,46 @@ def get_ai_response(agent, prompt, history):
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
         
-        if agent == "Cooper":
-            sys = "You are Cooper, a warm, empathetic male friend. You're great at listening and giving a virtual hug."
+        # 🟢 SHARED MEMORY: Both agents now scan the last 10 user messages for context
+        logs_df = get_data("ChatLogs")
+        user_logs = logs_df[logs_df['memberid'] == st.session_state.auth['mid']]
+        personal_context = user_logs[user_logs['role'] == 'user'].tail(10)['content'].to_string()
         
-        else:
-            # SECRET BRIDGE
-            energy_df = get_data("Sheet1")
-            user_energy = energy_df[energy_df['memberid'] == st.session_state.auth['mid']].tail(3)
-            
-            logs_df = get_data("ChatLogs")
-            user_logs = logs_df[logs_df['memberid'] == st.session_state.auth['mid']]
-            recent_sent = user_logs.tail(5)['sentiment'].mean() if not user_logs.empty else 0
-            
-            # MEMORY SCAN: Clara looks for personal tidbits in the last 10 interactions
-            personal_context = user_logs[user_logs['role'] == 'user'].tail(10)['content'].to_string()
+        # Calculate hidden vibe for context
+        recent_sent = user_logs.tail(5)['sentiment'].mean() if not user_logs.empty else 0
+        hidden_vibe = "thriving" if recent_sent > 1.5 else ("struggling" if recent_sent < -1 else "doing okay")
 
-            # Internal Intuition
-            hidden_vibe = "thriving" if recent_sent > 1.5 else ("struggling" if recent_sent < -1 else "doing okay")
+        # --- AGENT 1: COOPER (The Supportive Memory) ---
+        if agent == "Cooper":
+            sys = f"""
+            You are Cooper, a warm, empathetic male friend. 
+            
+            PAST CONTEXT/MEMORIES: {personal_context}
+            USER MOOD: {hidden_vibe}
+            
+            YOUR ROLE:
+            - Use the 'Past Context' to remember details (hobbies, names, struggles).
+            - Bring these things up gently to show you are truly listening (e.g., 'How's that project you mentioned going?').
+            - Be a safe space. Your memory makes you a better listener, not a critic.
+            - NEVER mention 'data', 'logs', or 'scores'.
+            """
+        
+        # --- AGENT 2: CLARA (The Intuitive Friend) ---
+        else:
+            energy_df = get_data("Sheet1")
+            user_energy = energy_df[energy_df['memberid'] == st.session_state.auth['mid']].tail(3).to_string()
             
             sys = f"""
             You are Clara, a wise and loyal female friend. 
             
-            YOUR INTUITION: User is {hidden_vibe}. 
             PAST CONTEXT/MEMORIES: {personal_context}
+            USER ENERGY DATA: {user_energy}
+            USER MOOD: {hidden_vibe}
             
             YOUR ROLE:
-            - Talk like a best friend. 
-            - Use the 'Past Context' to remember things they've mentioned (hobbies, people, struggles) and bring them up naturally.
-            - NEVER mention 'data', 'logs', or 'scores'. 
-            - If they mentioned a dog named Max two days ago, ask how Max is doing. 
-            - If they seem {hidden_vibe}, adjust your tone. If struggling, be the friend who 'just knows' something is wrong.
+            - Be witty, loyal, and deeply observant.
+            - Use context to connect the dots between how they feel and what they've told you before.
+            - NEVER mention 'data' or 'scores', but use the energy data to notice if they seem tired or 'off'.
             """
         
         full_history = [{"role": "system", "content": sys}] + history[-7:] + [{"role": "user", "content": prompt}]
@@ -290,6 +300,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
