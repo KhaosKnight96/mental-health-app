@@ -20,7 +20,6 @@ st.markdown("""
         background: #1E293B; padding: 15px; border-radius: 20px; 
         border: 1px solid #334155; margin-bottom: 15px; 
     }
-    /* Prevents the page from bouncing while swiping in games */
     .game-box { touch-action: none; overflow: hidden; }
 </style>
 """, unsafe_allow_html=True)
@@ -32,7 +31,6 @@ client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 if "auth" not in st.session_state:
     st.session_state.auth = {"logged_in": False, "mid": None, "role": "user"}
 if "cooper_logs" not in st.session_state: st.session_state.cooper_logs = []
-if "clara_logs" not in st.session_state: st.session_state.clara_logs = []
 
 def get_data(worksheet_name):
     try:
@@ -41,33 +39,25 @@ def get_data(worksheet_name):
         return df
     except: return pd.DataFrame()
 
-def save_chat_to_sheets(agent, role, content):
-    new_entry = pd.DataFrame([{
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "memberid": st.session_state.auth['mid'],
-        "agent": agent, "role": role, "content": content
-    }])
-    conn.update(worksheet="ChatLogs", data=pd.concat([get_data("ChatLogs"), new_entry], ignore_index=True))
-
-# --- 3. LOGIN & DUPLICATE PROTECTION ---
+# --- 3. LOGIN & DUPLICATE PROTECTION (FIXED KEYS) ---
 if not st.session_state.auth["logged_in"]:
     st.markdown("<h2 style='text-align:center;'>🧠 Health Bridge</h2>", unsafe_allow_html=True)
     t1, t2 = st.tabs(["🔐 Login", "📝 Sign Up"])
     with t1:
-        u = st.text_input("Member ID").strip().lower()
-        p = st.text_input("Password", type="password")
-        if st.button("Sign In"):
+        u = st.text_input("Member ID", key="login_id").strip().lower()
+        p = st.text_input("Password", type="password", key="login_pass")
+        if st.button("Sign In", key="login_btn"):
             df = get_data("Users")
-            if not df.empty and 'memberid' in df.columns:
+            if not df.empty:
                 m = df[(df['memberid'].astype(str).str.lower() == u) & (df['password'].astype(str) == p)]
                 if not m.empty:
                     st.session_state.auth.update({"logged_in": True, "mid": u, "role": str(m.iloc[0]['role']).lower()})
                     st.rerun()
                 else: st.error("Check credentials")
     with t2:
-        mid_new = st.text_input("New Member ID").strip().lower()
-        p_new = st.text_input("Create Password", type="password")
-        if st.button("Register"):
+        mid_new = st.text_input("New Member ID", key="signup_id").strip().lower()
+        p_new = st.text_input("Create Password", type="password", key="signup_pass")
+        if st.button("Register", key="signup_btn"):
             df = get_data("Users")
             if not df.empty and mid_new in df['memberid'].astype(str).str.lower().values:
                 st.error("ID already exists.")
@@ -78,61 +68,51 @@ if not st.session_state.auth["logged_in"]:
     st.stop()
 
 # --- 4. NAVIGATION ---
-tabs = ["🏠 Cooper", "🛋️ Clara", "🎮 Games"]
+tabs = ["🏠 Cooper", "🎮 Games"]
 if st.session_state.auth['role'] == "admin": tabs.append("🛡️ Admin")
 nav = st.tabs(tabs)
 
 # --- 5. COOPER ---
 with nav[0]:
-    st.markdown('<div class="portal-card"><h3>⚡ Energy Status</h3>', unsafe_allow_html=True)
-    ev = st.select_slider("Level", options=list(range(1,12)), value=6)
-    if st.button("Log Energy"):
-        new_row = pd.DataFrame([{"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), "memberid": st.session_state.auth['mid'], "energylog": ev}])
-        conn.update(worksheet="Sheet1", data=pd.concat([get_data("Sheet1"), new_row], ignore_index=True))
-        st.toast("Synced!")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
     for m in st.session_state.cooper_logs:
         st.chat_message(m["role"]).write(m["content"])
     if p := st.chat_input("Speak with Cooper..."):
         st.session_state.cooper_logs.append({"role": "user", "content": p})
-        save_chat_to_sheets("Cooper", "user", p)
-        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper, a companion."}]+st.session_state.cooper_logs[-3:]).choices[0].message.content
+        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper."}]+st.session_state.cooper_logs[-3:]).choices[0].message.content
         st.session_state.cooper_logs.append({"role": "assistant", "content": res})
-        save_chat_to_sheets("Cooper", "assistant", res)
         st.rerun()
 
-# --- 6. CLARA ---
+# --- 6. GAMES (HYBRID: SWIPE + KEYBOARD) ---
 with nav[1]:
-    df_l = get_data("Sheet1")
-    if not df_l.empty:
-        df_p = df_l[df_l['memberid'].astype(str).str.lower() == st.session_state.auth['mid']].copy()
-        if not df_p.empty:
-            df_p['timestamp'] = pd.to_datetime(df_p['timestamp'])
-            fig = go.Figure(go.Scatter(x=df_p['timestamp'], y=df_p['energylog'], fill='tozeroy', line=dict(color='#F472B6')))
-            fig.update_layout(height=250, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"))
-            st.plotly_chart(fig, use_container_width=True)
-
-# --- 7. GAMES (SWIPE ENABLED) ---
-with nav[2]:
-    game_mode = st.radio("Select Game", ["Snake Swipe", "2048 Swipe"], horizontal=True)
+    game_mode = st.radio("Select Game", ["Snake Hybrid", "2048 Hybrid"], horizontal=True)
     
-    if game_mode == "Snake Swipe":
+    if game_mode == "Snake Hybrid":
         SNAKE_HTML = """
         <div class="game-box" style="display:flex; flex-direction:column; align-items:center; background:#1E293B; border-radius:20px; padding:15px; touch-action:none;">
-            <canvas id="sc" width="300" height="300" style="background:#0F172A; border:2px solid #38BDF8; border-radius:10px;"></canvas>
+            <canvas id="sc" width="300" height="300" style="background:#0F172A; border:2px solid #38BDF8; border-radius:10px; outline:none;" tabindex="0"></canvas>
             <p style="color:#38BDF8; font-weight:bold; margin-top:10px;" id="score">Score: 0</p>
         </div>
         <script>
             const canvas = document.getElementById("sc"); const ctx = canvas.getContext("2d");
             let box = 15; let snake, food, d, game;
             let tsX, tsY;
+
+            // KEYBOARD CONTROLS
+            window.addEventListener('keydown', e => {
+                if(e.key=="ArrowLeft" && d!='RIGHT') d='LEFT';
+                if(e.key=="ArrowUp" && d!='DOWN') d='UP';
+                if(e.key=="ArrowRight" && d!='LEFT') d='RIGHT';
+                if(e.key=="ArrowDown" && d!='UP') d='DOWN';
+            });
+
+            // SWIPE CONTROLS
             canvas.addEventListener('touchstart', e => { tsX = e.touches[0].clientX; tsY = e.touches[0].clientY; });
             canvas.addEventListener('touchend', e => {
                 let dx = e.changedTouches[0].clientX - tsX; let dy = e.changedTouches[0].clientY - tsY;
                 if(Math.abs(dx) > Math.abs(dy)) { if(dx>30 && d!='LEFT') d='RIGHT'; else if(dx<-30 && d!='RIGHT') d='LEFT'; }
                 else { if(dy>30 && d!='UP') d='DOWN'; else if(dy<-30 && d!='DOWN') d='UP'; }
             });
+
             function reset() { snake=[{x:9*box,y:10*box}]; food={x:Math.floor(Math.random()*19)*box,y:Math.floor(Math.random()*19)*box}; d=null; if(game) clearInterval(game); game=setInterval(draw,130); }
             function draw() {
                 ctx.fillStyle="#0F172A"; ctx.fillRect(0,0,300,300);
@@ -158,6 +138,15 @@ with nav[2]:
         </div>
         <script>
             let board=Array(16).fill(0); let score=0; let tsX, tsY;
+            
+            // KEYBOARD CONTROLS
+            window.addEventListener('keydown', e => {
+                if(e.key=="ArrowLeft") mv(0,1,4); if(e.key=="ArrowRight") mv(3,-1,4);
+                if(e.key=="ArrowUp") mv(0,4,1); if(e.key=="ArrowDown") mv(12,-4,1);
+                add(); ren();
+            });
+
+            // SWIPE CONTROLS
             document.getElementById('g2048').addEventListener('touchstart', e => { tsX=e.touches[0].clientX; tsY=e.touches[0].clientY; });
             document.getElementById('g2048').addEventListener('touchend', e => {
                 let dx=e.changedTouches[0].clientX-tsX; let dy=e.changedTouches[0].clientY-tsY;
@@ -165,6 +154,7 @@ with nav[2]:
                 else { if(dy>40) mv(12,-4,1); else if(dy<-40) mv(0,4,1); }
                 add(); ren();
             });
+
             function add(){ let e=board.map((v,i)=>v==0?i:null).filter(v=>v!=null); if(e.length) board[e[Math.floor(Math.random()*e.length)]]=2; }
             function ren(){ 
                 const g=document.getElementById('grid'); g.innerHTML='';
@@ -177,16 +167,16 @@ with nav[2]:
         """
         st.components.v1.html(T2048_HTML, height=450)
 
-# --- 8. ADMIN ---
+# --- 7. ADMIN (FIXED SEARCH KEY) ---
 if st.session_state.auth['role'] == "admin":
     with nav[-1]:
         st.subheader("🛡️ Admin Log Search")
-        q = st.text_input("🔍 Search Keyword")
+        q = st.text_input("🔍 Search Keyword", key="admin_search_input")
         df_logs = get_data("ChatLogs")
         if q and not df_logs.empty:
             df_logs = df_logs[df_logs['content'].astype(str).str.contains(q, case=False)]
         st.dataframe(df_logs, use_container_width=True)
 
-if st.button("Logout"):
+if st.button("Logout", key="logout_btn"):
     st.session_state.clear()
     st.rerun()
