@@ -112,13 +112,115 @@ for i, agent in enumerate(["Cooper", "Clara"]):
             save_log(agent, "assistant", res)
             st.rerun()
 
-# --- 5. IMMERSIVE GAMES (TOUCH & SOUND) ---
+# --- 5. IMMERSIVE GAMES (TOUCH & SCROLL-LOCKED) ---
 with tabs[2]:
-    game_mode = st.radio("Game", ["Snake", "Memory Pattern", "Flash Match"], horizontal=True)
+    game_mode = st.radio("Select Activity", ["Snake", "2048", "Memory Pattern", "Flash Match"], horizontal=True)
+    
+    # Unified Sound Library
     JS_LIBS = """
     const actx=new(window.AudioContext||window.webkitAudioContext)();
     function snd(f,t,d){const o=actx.createOscillator(),g=actx.createGain();o.type=t;o.frequency.value=f;g.gain.exponentialRampToValueAtTime(0.01,actx.currentTime+d);o.connect(g);g.connect(actx.destination);o.start();o.stop(actx.currentTime+d);}
     """
+    
+    if game_mode == "2048":
+        st.components.v1.html(f"<script>{JS_LIBS}</script>" + """
+        <div id="p2048" style="text-align:center; background:#1E293B; padding:20px; border-radius:20px; touch-action:none; font-family:sans-serif;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h2 style="color:#38BDF8; margin:0;">2048</h2>
+                <div style="background:#0F172A; padding:5px 15px; border-radius:8px; color:white;">Score: <span id="s2048">0</span></div>
+            </div>
+            
+            <div id="grid2048" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; background:#0F172A; padding:10px; border-radius:10px; position:relative;">
+                </div>
+            
+            <button id="start2048" onclick="init2048()" style="margin-top:15px; padding:10px 20px; background:#38BDF8; border:none; border-radius:8px; color:white; cursor:pointer; font-weight:bold;">New Game</button>
+            <p style="color:#94A3B8; font-size:12px; margin-top:10px;">Swipe or use Arrows to slide tiles</p>
+        </div>
+
+        <script>
+            let board, score, running=false;
+            const grid = document.getElementById("grid2048");
+            
+            function init2048() {
+                board = Array(16).fill(0);
+                score = 0;
+                running = true;
+                addTile(); addTile();
+                draw2048();
+                document.getElementById("start2048").innerText = "Reset Game";
+            }
+
+            function addTile() {
+                let empty = board.map((v, i) => v === 0 ? i : null).filter(v => v !== null);
+                if (empty.length) board[empty[Math.floor(Math.random() * empty.length)]] = Math.random() < 0.9 ? 2 : 4;
+            }
+
+            function draw2048() {
+                grid.innerHTML = "";
+                board.forEach(v => {
+                    const tile = document.createElement("div");
+                    tile.style = `height:60px; display:flex; align-items:center; justify-content:center; border-radius:5px; font-weight:bold; font-size:20px; transition: all 0.1s; background:${getCol(v)}; color:${v>4?"#fff":"#0F172A"}`;
+                    tile.innerText = v === 0 ? "" : v;
+                    grid.appendChild(tile);
+                });
+                document.getElementById("s2048").innerText = score;
+            }
+
+            function getCol(v) {
+                const colors = {0:"#334155", 2:"#eee4da", 4:"#ede0c8", 8:"#f2b179", 16:"#f59563", 32:"#f67c5f", 64:"#f65e3b", 128:"#edcf72", 256:"#edcc61", 512:"#edc850", 1024:"#edc53f", 2048:"#edc22e"};
+                return colors[v] || "#3c3a32";
+            }
+
+            function slide(row) {
+                let arr = row.filter(v => v);
+                for (let i = 0; i < arr.length - 1; i++) {
+                    if (arr[i] === arr[i+1]) { arr[i] *= 2; score += arr[i]; arr[i+1] = 0; snd(440, "sine", 0.05); }
+                }
+                arr = arr.filter(v => v);
+                while (arr.length < 4) arr.push(0);
+                return arr;
+            }
+
+            function move(dir) {
+                if(!running) return;
+                let prev = JSON.stringify(board);
+                for (let i = 0; i < 4; i++) {
+                    let row = [];
+                    for (let j = 0; j < 4; j++) {
+                        if (dir === "L" || dir === "R") row.push(board[i * 4 + j]);
+                        else row.push(board[j * 4 + i]);
+                    }
+                    if (dir === "R" || dir === "D") row.reverse();
+                    row = slide(row);
+                    if (dir === "R" || dir === "D") row.reverse();
+                    for (let j = 0; j < 4; j++) {
+                        if (dir === "L" || dir === "R") board[i * 4 + j] = row[j];
+                        else board[j * 4 + i] = row[j];
+                    }
+                }
+                if (prev !== JSON.stringify(board)) { addTile(); draw2048(); if(isGameOver()) { running=false; alert("Game Over!"); } }
+            }
+
+            function isGameOver() { return !board.includes(0); }
+
+            // Controls & Scroll-Lock
+            window.addEventListener("keydown", e => {
+                if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) { e.preventDefault(); }
+                if(e.key=="ArrowLeft") move("L"); if(e.key=="ArrowRight") move("R");
+                if(e.key=="ArrowUp") move("U"); if(e.key=="ArrowDown") move("D");
+            });
+
+            let tx, ty;
+            grid.ontouchstart = e => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; };
+            grid.ontouchmove = e => e.preventDefault();
+            grid.ontouchend = e => {
+                let dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
+                if (Math.abs(dx) > Math.abs(dy)) { move(dx > 0 ? "R" : "L"); }
+                else { move(dy > 0 ? "D" : "U"); }
+            };
+            init2048(); // Initialize empty board
+        </script>
+        """, height=500)
     
     if game_mode == "Snake":
         st.components.v1.html(f"<script>{JS_LIBS}</script>" + """
@@ -343,6 +445,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
