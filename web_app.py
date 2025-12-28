@@ -290,79 +290,63 @@ with tabs[2]:
 # --- 6. ADMIN (THE BRIDGE & DATA MANAGEMENT) ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        # Sidebar filter for easier navigation
         st.sidebar.markdown("---")
         st.sidebar.subheader("🎯 Admin Focus")
-        u_sel = st.sidebar.selectbox("Select Member to Inspect", ["All Users"] + sorted(list(get_data("Users")['memberid'].unique())))
-
+        
+        # Pull user list for the filter
+        u_list = ["All Users"]
+        users_df = get_data("Users")
+        if not users_df.empty:
+            u_list += sorted(list(users_df['memberid'].unique()))
+            
+        u_sel = st.sidebar.selectbox("Select Member to Inspect", u_list)
         admin_sub_tabs = st.tabs(["🔍 Chat Explorer", "📈 Mood Trends", "🎮 Game Overview", "⚠️ Management"])
         
         logs_df = get_data("ChatLogs")
         
         if not logs_df.empty:
             logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'], errors='coerce')
-            
-            # --- TAB 0: CHAT EXPLORER ---
+
             with admin_sub_tabs[0]:
                 st.subheader("📋 Interaction Logs")
                 search_q = st.text_input("🔍 Search message content...", key="admin_search")
-                
                 f_df = logs_df.copy()
                 if u_sel != "All Users": f_df = f_df[f_df['memberid'] == u_sel]
                 if search_q: f_df = f_df[f_df['content'].str.contains(search_q, case=False, na=False)]
-                
                 st.dataframe(f_df.sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
 
-            # --- TAB 1: MOOD TRENDS ---
             with admin_sub_tabs[1]:
                 st.subheader(f"📈 Sentiment Analysis: {u_sel}")
                 sent_df = logs_df[logs_df['role'] == 'user'].copy()
                 if u_sel != "All Users": sent_df = sent_df[sent_df['memberid'] == u_sel]
-                
                 if not sent_df.empty:
                     sent_df['sentiment'] = pd.to_numeric(sent_df['sentiment'], errors='coerce').fillna(0)
                     daily_mood = sent_df.groupby(sent_df['timestamp'].dt.date)['sentiment'].mean().reset_index()
-                    
                     fig = go.Figure(go.Scatter(x=daily_mood['timestamp'], y=daily_mood['sentiment'], mode='lines+markers', line=dict(color='#38BDF8')))
-                    fig.update_layout(template="plotly_dark", yaxis=dict(range=[-5.5, 5.5], title="Score (-5 to +5)"))
+                    fig.update_layout(template="plotly_dark", yaxis=dict(range=[-5.5, 5.5], title="Score"))
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.info("No sentiment data found.")
 
-            # --- TAB 2: GAME OVERVIEW (NEW) ---
             with admin_sub_tabs[2]:
                 st.subheader(f"🎮 Arcade Performance: {u_sel}")
-                
-                # We identify games by the 'agent' column
                 games = ["Snake", "2048", "Memory Pattern", "Flash Match"]
                 g_df = logs_df[logs_df['agent'].isin(games)].copy()
-                
                 if u_sel != "All Users": g_df = g_df[g_df['memberid'] == u_sel]
-                
                 if not g_df.empty:
                     g_df['score'] = pd.to_numeric(g_df['content'], errors='coerce').fillna(0)
-                    
-                    # Create stats summary
-                    stats = g_df.groupby(['memberid', 'agent']).agg(
-                        High_Score=('score', 'max'),
-                        Total_Plays=('score', 'count')
-                    ).reset_index()
-                    
+                    stats = g_df.groupby(['memberid', 'agent']).agg(High_Score=('score', 'max'), Total_Plays=('score', 'count')).reset_index()
                     st.dataframe(stats.sort_values('High_Score', ascending=False), use_container_width=True, hide_index=True)
-                    
-                    # Visual Chart
                     fig_g = go.Figure()
                     for game in games:
                         g_data = stats[stats['agent'] == game]
                         if not g_data.empty:
                             fig_g.add_trace(go.Bar(x=g_data['memberid'], y=g_data['High_Score'], name=game))
-                    
-                    fig_g.update_layout(template="plotly_dark", barmode='group', title="Highest Scores per User")
+                    fig_g.update_layout(template="plotly_dark", barmode='group')
                     st.plotly_chart(fig_g, use_container_width=True)
                 else:
                     st.info("No game scores recorded yet.")
 
-            # --- TAB 3: MANAGEMENT ---
             with admin_sub_tabs[3]:
                 st.subheader("⚠️ Data Management")
                 if u_sel != "All Users":
@@ -377,50 +361,8 @@ with tabs[3]:
             st.info("The ChatLogs sheet is currently empty.")
     else:
         st.warning("Admin Access Required")
-            # --- TAB 2: ACTIVITY ---
-            with admin_sub_tabs[2]:
-                st.subheader("📊 Community Engagement")
-                rank_df = logs_df.groupby('memberid').size().reset_index(name='Total Interactions')
-                st.plotly_chart(go.Figure(go.Bar(x=rank_df['memberid'], y=rank_df['Total Interactions'], marker_color='#38BDF8')), use_container_width=True)
-
-            # --- TAB 3: DATA MANAGEMENT ---
-            with admin_sub_tabs[3]:
-                st.subheader("⚠️ Clear User Chat History")
-                st.warning("This action permanently deletes logs from Google Sheets.")
-                
-                user_list = sorted(logs_df['memberid'].unique())
-                target_user = st.selectbox("Select User to Clear", ["Select a User..."] + user_list, key="delete_user_select")
-                
-                if target_user != "Select a User...":
-                    confirm = st.checkbox(f"I am sure I want to delete ALL logs for {target_user}")
-                    if st.button(f"🗑️ Delete Logs for {target_user}", disabled=not confirm):
-                        with st.spinner("Wiping records..."):
-                            remaining_logs = logs_df[logs_df['memberid'] != target_user]
-                            conn.update(worksheet="ChatLogs", data=remaining_logs)
-                            st.success(f"Cleared logs for {target_user}!")
-                            st.rerun()
-        else:
-            st.info("No logs found in ChatLogs.")
-    else:
-        st.warning("Admin Access Required")
 # --- 7. LOGOUT ---
 with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
