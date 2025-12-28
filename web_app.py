@@ -255,16 +255,13 @@ with tabs[3]:
                     )
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # Individual Status Table
-                    st.markdown("### User Health Snapshot")
-                    user_h = user_msgs.groupby('memberid')['sentiment'].mean().reset_index()
-                    user_h['Status'] = user_h['sentiment'].apply(
-                        lambda x: "🟢 Thriving" if x > 1 else ("🔴 Struggling" if x < -1 else "🟡 Stable")
-                    )
-                    st.table(user_h)
-                else:
-                    st.info("Adjust your filters to see sentiment data.")
-
+                    # Update only the Status table logic in Admin Tab 2
+user_h['Clara\'s Intuition'] = user_h['sentiment'].apply(
+    lambda x: "🌟 'They're in a great place!'" if x > 1.5 
+    else ("🩹 'They're hurting a bit.'" if x < -1 
+    else "⚖️ 'They seem steady.'")
+)
+st.table(user_h[['memberid', 'sentiment', 'Clara\'s Intuition']])
             # --- TAB 3: ACTIVITY ---
             with admin_sub_tabs[2]:
                 st.subheader("Community Engagement")
@@ -284,6 +281,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
