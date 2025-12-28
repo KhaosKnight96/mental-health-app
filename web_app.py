@@ -191,89 +191,59 @@ with tabs[2]:
     elif game_mode == "Flash Match":
         st.components.v1.html(JS_CORE + """<div class="game-container"><div class="score-board">Level: <span id="f-lvl">1</span></div><div id="f-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;"></div><div id="f-go" class="overlay" style="display:none;"><h1>WELL DONE!</h1><button class="game-btn" onclick="f_init()">Next Level</button></div></div><script>let p=2, m=0, f=[]; const icons=['🍎','🚀','💎','🌟','🔥','🌈','🍕','⚽']; function f_init(){ m=0; f=[]; document.getElementById("f-go").style.display="none"; const g=document.getElementById("f-grid"); g.innerHTML=""; let d=[...icons.slice(0,p), ...icons.slice(0,p)].sort(()=>Math.random()-0.5); d.forEach(icon=>{ const c=document.createElement("div"); c.style="height:60px; background:#334155; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer"; c.onclick=()=>{ if(f.length<2 && !c.innerText){ c.innerText=icon; c.style.background="#38BDF8"; snd(400,"sine",0.1); f.push({c,icon}); if(f.length==2){ if(f[0].icon==f[1].icon){ m++; f=[]; if(m==p){ p=Math.min(p+1,8); document.getElementById("f-go").style.display="flex"; } } else { setTimeout(()=>{ f.forEach(x=>{x.c.innerText=""; x.c.style.background="#334155"}); f=[]; },500); } } } }; g.appendChild(c); }); } f_init();</script>""", height=450)
 
-# --- 6. ADMIN (LOGS, SEARCH & FILTERS) ---
+# --- 6. ADMIN (THE BRIDGE) ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        # Sub-tabs for better organization
+        # Ensure these sub_tabs are indented exactly 8 spaces (or 2 tabs)
         admin_sub_tabs = st.tabs(["🔍 Search & Filter", "📈 Sentiment Trends", "🏆 Activity"])
         
         logs_df = get_data("ChatLogs")
-        
         if not logs_df.empty:
-            # Data Preparation
+            # Standardize data for analysis
             logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'], errors='coerce')
             if 'sentiment' in logs_df.columns:
                 logs_df['sentiment'] = pd.to_numeric(logs_df['sentiment'], errors='coerce').fillna(0)
             
             # --- TAB 1: SEARCH & FILTER ---
             with admin_sub_tabs[0]:
-                st.subheader("📋 Advanced Log Explorer")
-                
-                # Filter Row
+                st.subheader("📋 Interaction Explorer")
                 c1, c2, c3 = st.columns([2, 1, 1])
-                search_term = c1.text_input("🔍 Search message content...", placeholder="Type here...")
-                user_list = ["All"] + list(logs_df['memberid'].unique())
-                selected_user = c2.selectbox("Filter by User", user_list)
-                agent_list = ["All"] + list(logs_df['agent'].unique())
-                selected_agent = c3.selectbox("Filter by Agent", agent_list)
+                search_q = c1.text_input("🔍 Search Messages")
+                u_sel = c2.selectbox("User", ["All"] + list(logs_df['memberid'].unique()))
+                a_sel = c3.selectbox("Agent", ["All"] + list(logs_df['agent'].unique()))
                 
-                # Apply Filtering Logic
-                filtered_df = logs_df.copy()
-                if search_term:
-                    filtered_df = filtered_df[filtered_df['content'].str.contains(search_term, case=False, na=False)]
-                if selected_user != "All":
-                    filtered_df = filtered_df[filtered_df['memberid'] == selected_user]
-                if selected_agent != "All":
-                    filtered_df = filtered_df[filtered_df['agent'] == selected_agent]
+                f_df = logs_df.copy()
+                if search_q: f_df = f_df[f_df['content'].str.contains(search_q, case=False, na=False)]
+                if u_sel != "All": f_df = f_df[f_df['memberid'] == u_sel]
+                if a_sel != "All": f_df = f_df[f_df['agent'] == a_sel]
                 
-                # Display results
-                st.dataframe(
-                    filtered_df.sort_values('timestamp', ascending=False), 
-                    use_container_width=True,
-                    hide_index=True
-                )
-                st.caption(f"Showing {len(filtered_df)} messages matching your criteria.")
+                st.dataframe(f_df.sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
 
             # --- TAB 2: SENTIMENT TRENDS ---
             with admin_sub_tabs[1]:
-                st.subheader("📈 Emotional Analysis")
-                # We reuse the filtered_df so the graph updates based on your search!
-                user_msgs = filtered_df[filtered_df['role'] == 'user'].copy()
-                
+                st.subheader("📈 Emotional Pulse (As seen by Clara)")
+                user_msgs = logs_df[logs_df['role'] == 'user'].copy()
                 if not user_msgs.empty:
-                    # Line Graph
                     trend_df = user_msgs.groupby(user_msgs['timestamp'].dt.date)['sentiment'].mean().reset_index()
-                    fig = go.Figure(go.Scatter(
-                        x=trend_df['timestamp'], y=trend_df['sentiment'], 
-                        mode='lines+markers', line=dict(color='#38BDF8', width=3),
-                        name="Avg Sentiment"
-                    ))
-                    fig.update_layout(
-                        template="plotly_dark", 
-                        yaxis=dict(range=[-5.5, 5.5], title="Score"),
-                        title="Sentiment Trend (Filtered Results)"
-                    )
+                    fig = go.Figure(go.Scatter(x=trend_df['timestamp'], y=trend_df['sentiment'], mode='lines+markers', line=dict(color='#38BDF8')))
+                    fig.update_layout(template="plotly_dark", title="Global Mood Pulse")
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # Update only the Status table logic in Admin Tab 2
-user_h['Clara\'s Intuition'] = user_h['sentiment'].apply(
-    lambda x: "🌟 'They're in a great place!'" if x > 1.5 
-    else ("🩹 'They're hurting a bit.'" if x < -1 
-    else "⚖️ 'They seem steady.'")
-)
-st.table(user_h[['memberid', 'sentiment', 'Clara\'s Intuition']])
+                    user_h = user_msgs.groupby('memberid')['sentiment'].mean().reset_index()
+                    # Clara's intuitive translation for the Admin
+                    user_h["Clara's Intuition"] = user_h['sentiment'].apply(
+                        lambda x: "🌟 'They're in a great place!'" if x > 1.5 
+                        else ("🩹 'They're hurting a bit.'" if x < -1 else "⚖️ 'They seem steady.'")
+                    )
+                    st.table(user_h[['memberid', 'sentiment', "Clara's Intuition"]])
+
             # --- TAB 3: ACTIVITY ---
             with admin_sub_tabs[2]:
                 st.subheader("Community Engagement")
-                # Grouping by the unfiltered logs to show global activity
                 rank_df = logs_df.groupby('memberid').size().reset_index(name='Total Interactions')
-                st.plotly_chart(go.Figure(go.Bar(
-                    x=rank_df['memberid'], 
-                    y=rank_df['Total Interactions'], 
-                    marker_color='#38BDF8'
-                )), use_container_width=True)
+                st.plotly_chart(go.Figure(go.Bar(x=rank_df['memberid'], y=rank_df['Total Interactions'], marker_color='#38BDF8')), use_container_width=True)
         else:
-            st.info("No data available in ChatLogs yet.")
+            st.info("No data available yet.")
     else:
         st.warning("Admin Access Required")
 # --- 7. LOGOUT ---
@@ -281,6 +251,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
