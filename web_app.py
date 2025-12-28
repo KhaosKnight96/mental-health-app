@@ -3,9 +3,8 @@ import pandas as pd
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
-import plotly.graph_objects as go
 
-# --- 1. CONFIGURATION ---
+# --- 1. CONFIG & THEME ---
 st.set_page_config(page_title="Health Bridge Pro", layout="wide")
 
 st.markdown("""
@@ -16,21 +15,12 @@ st.markdown("""
         border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1);
         padding: 25px; margin-bottom: 20px;
     }
-    .stChatMessage { border-radius: 15px; margin-bottom: 10px; }
-    .avatar-pulse {
-        width: 60px; height: 60px; border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 30px; margin: 0 auto 10px;
-        background: linear-gradient(135deg, #38BDF8, #6366F1);
-    }
+    .stButton>button { border-radius: 12px; height: 3em; width: 100%; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. CONNECTIONS & DATA ---
+# --- 2. DATA & AI HELPERS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
-
-if "auth" not in st.session_state: st.session_state.auth = {"in": False, "mid": None}
-if "chats" not in st.session_state: st.session_state.chats = {"Cooper": [], "Clara": []}
 
 def get_data(ws):
     try:
@@ -39,130 +29,108 @@ def get_data(ws):
         return df
     except: return pd.DataFrame()
 
-def save_log(agent, role, content):
+def talk_to_ai(agent_name, prompt, system_msg):
     try:
-        new_row = pd.DataFrame([{
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "memberid": st.session_state.auth['mid'],
-            "agent": agent, "role": role, "content": content
-        }])
-        conn.update(worksheet="ChatLogs", data=pd.concat([get_data("ChatLogs"), new_row], ignore_index=True))
-    except: pass
+        client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
+        history = [{"role": "system", "content": system_msg}] + st.session_state.chats[agent_name][-3:]
+        history.append({"role": "user", "content": prompt})
+        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=history)
+        return res.choices[0].message.content
+    except Exception as e: return f"AI Error: {e}"
 
-# --- 3. THE AI ENGINES ---
-def talk_to_cooper(prompt):
-    """Cooper: The Empathetic Friend"""
-    client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
-    system_msg = (
-        "You are Cooper, a warm, friendly, and deeply empathetic friend. "
-        "Your goal is to listen, provide emotional support, and be a safe space for the user. "
-        "Keep your tone conversational, kind, and supportive. Avoid being overly clinical."
-    )
-    history = [{"role": "system", "content": system_msg}] + st.session_state.chats["Cooper"][-5:]
-    res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=history)
-    return res.choices[0].message.content
+# --- 3. SESSION STATE ---
+if "auth" not in st.session_state: st.session_state.auth = {"in": False, "mid": None}
+if "chats" not in st.session_state: st.session_state.chats = {"Cooper": [], "Clara": []}
 
-def talk_to_clara(prompt):
-    """Clara: The Data Analyst"""
-    client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
-    
-    # Fetch Data for Clara to analyze
-    energy_df = get_data("Sheet1")
-    user_energy = energy_df[energy_df['memberid'] == st.session_state.auth['mid']].tail(10).to_string()
-    
-    system_msg = (
-        "You are Clara, a logical health data analyst. You have access to the user's recent energy logs and chat history. "
-        f"USER ENERGY DATA (Recent): {user_energy}. "
-        "Analyze the connection between their reported energy and their conversations with Cooper. "
-        "Provide insights on patterns, potential burnout, or improvements. Be professional yet empathetic."
-    )
-    history = [{"role": "system", "content": system_msg}] + st.session_state.chats["Clara"][-3:]
-    history.append({"role": "user", "content": prompt})
-    
-    res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=history)
-    return res.choices[0].message.content
-
-# --- 4. LOGIN GATE (FIXED) ---
+# --- 4. LOGIN GATE ---
 if not st.session_state.auth["in"]:
-    st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge Portal</h1>", unsafe_allow_html=True)
-    
-    with st.container(border=True):
-        u = st.text_input("Member ID").strip().lower()
-        p = st.text_input("Password", type="password")
-        
-        if st.button("Sign In", use_container_width=True):
-            if not u or not p:
-                st.warning("Please enter both Member ID and Password.")
-            else:
-                try:
-                    # 1. Fetch Data
-                    users_df = get_data("Users")
-                    
-                    if users_df.empty:
-                        st.error("Sheet 'Users' is empty or could not be reached.")
-                    else:
-                        # 2. DEBUG: Show columns if it fails (Hidden unless error)
-                        # st.write(users_df.columns) 
-                        
-                        # 3. Match credentials
-                        # We ensure columns are treated as strings to prevent matching errors
-                        match = users_df[
-                            (users_df['memberid'].astype(str).str.lower() == u) & 
-                            (users_df['password'].astype(str) == p)
-                        ]
-                        
-                        if not match.empty:
-                            # 4. Success - Update State
-                            st.session_state.auth.update({
-                                "in": True, 
-                                "mid": u,
-                                "role": str(match.iloc[0]['role']).lower() if 'role' in match.columns else 'user'
-                            })
-                            st.success(f"Welcome back, {u}!")
-                            st.rerun()
-                        else:
-                            st.error("Invalid Member ID or Password. Please try again.")
-                            
-                except Exception as e:
-                    st.error(f"Login System Error: {str(e)}")
-                    st.info("Check if your Google Sheet has columns named: 'memberid' and 'password'")
+    st.title("🧠 Health Bridge Login")
+    u = st.text_input("Member ID").strip().lower()
+    p = st.text_input("Password", type="password")
+    if st.button("Sign In"):
+        df = get_data("Users")
+        if not df.empty:
+            m = df[(df['memberid'].astype(str).str.lower() == u) & (df['password'].astype(str) == p)]
+            if not m.empty:
+                st.session_state.auth.update({"in": True, "mid": u})
+                st.rerun()
+        st.error("Login Failed")
     st.stop()
-# --- 5. TABS ---
-t1, t2, t3 = st.tabs(["🏠 Cooper's Corner", "🛋️ Clara's Couch", "🚪 Logout"])
+
+# --- 5. MAIN TABS ---
+t1, t2, t3, t4 = st.tabs(["🏠 Cooper", "🛋️ Clara", "🎮 Games", "🚪 Logout"])
 
 with t1:
-    st.markdown('<div class="glass-panel"><div class="avatar-pulse">🤝</div><h3 style="text-align:center;">Cooper</h3><p style="text-align:center;font-style:italic;">"I am here to listen."</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="glass-panel"><h3 style="text-align:center;">🤝 Cooper: Your Friend</h3></div>', unsafe_allow_html=True)
     for m in st.session_state.chats["Cooper"]:
         with st.chat_message(m["role"]): st.write(m["content"])
-    
     if p := st.chat_input("Talk to Cooper..."):
         st.session_state.chats["Cooper"].append({"role": "user", "content": p})
-        save_log("Cooper", "user", p)
         with st.chat_message("user"): st.write(p)
-        with st.chat_message("assistant"):
-            with st.spinner("Cooper is listening..."):
-                res = talk_to_cooper(p)
-                st.write(res)
+        res = talk_to_ai("Cooper", p, "You are a warm, empathetic friend.")
         st.session_state.chats["Cooper"].append({"role": "assistant", "content": res})
-        save_log("Cooper", "assistant", res)
-
-with t2:
-    st.markdown('<div class="glass-panel"><div class="avatar-pulse" style="background:linear-gradient(135deg,#F472B6,#FB7185);">📊</div><h3 style="text-align:center;">Clara</h3><p style="text-align:center;font-style:italic;">"Analyzing patterns in your wellness data..."</p></div>', unsafe_allow_html=True)
-    for m in st.session_state.chats["Clara"]:
-        with st.chat_message(m["role"]): st.write(m["content"])
-        
-    if cp := st.chat_input("Ask Clara for insights..."):
-        st.session_state.chats["Clara"].append({"role": "user", "content": cp})
-        with st.chat_message("user"): st.write(cp)
-        with st.chat_message("assistant"):
-            with st.spinner("Clara is calculating..."):
-                res = talk_to_clara(cp)
-                st.write(res)
-        st.session_state.chats["Clara"].append({"role": "assistant", "content": res})
-        save_log("Clara", "assistant", res)
-
-with t3:
-    if st.button("Logout"):
-        st.session_state.clear()
         st.rerun()
 
+with t2:
+    st.markdown('<div class="glass-panel"><h3 style="text-align:center;">📊 Clara: Insights</h3></div>', unsafe_allow_html=True)
+    # Simple Logic: Clara looks at your Cooper chats too!
+    if cp := st.chat_input("Ask Clara for a data review..."):
+        st.session_state.chats["Clara"].append({"role": "user", "content": cp})
+        res = talk_to_ai("Clara", cp, "You are a data analyst who reviews health logs.")
+        st.session_state.chats["Clara"].append({"role": "assistant", "content": res})
+        st.rerun()
+
+with t3:
+    st.subheader("🕹️ Health Bridge Arcade")
+    game = st.radio("Select Game", ["Modern Snake", "Memory Match"], horizontal=True)
+    
+    if game == "Modern Snake":
+        st.components.v1.html("""
+        <div style="text-align:center; background:#1E293B; padding:20px; border-radius:20px;">
+            <canvas id="s" width="300" height="300" style="border:2px solid #38BDF8; background:#0F172A;"></canvas>
+            <h2 id="sc" style="color:#38BDF8; font-family:sans-serif;">Score: 0</h2>
+        </div>
+        <script>
+            const c=document.getElementById("s"), x=c.getContext("2d");
+            let b=15, s=[{x:150,y:150}], f={x:150,y:75}, d="R", sc=0;
+            window.onkeydown=e=>{ if(e.key=="ArrowLeft"&&d!="R")d="L"; if(e.key=="ArrowUp"&&d!="D")d="U"; if(e.key=="ArrowRight"&&d!="L")d="R"; if(e.key=="ArrowDown"&&d!="U")d="D"; };
+            function loop(){
+                x.fillStyle="#0F172A"; x.fillRect(0,0,300,300); x.fillStyle="#F87171"; x.fillRect(f.x,f.y,b,b);
+                s.forEach((p,i)=>{ x.fillStyle=i==0?"#38BDF8":"#334155"; x.fillRect(p.x,p.y,b,b); });
+                let h={...s[0]}; if(d=="L")h.x-=b; if(d=="U")h.y-=b; if(d=="R")h.x+=b; if(d=="D")h.y+=b;
+                if(h.x==f.x&&h.y==f.y){ f={x:Math.floor(Math.random()*20)*b,y:Math.floor(Math.random()*20)*b}; sc++; } else s.pop();
+                if(h.x<0||h.x>=300||h.y<0||h.y>=300||s.some(z=>z.x==h.x&&z.y==h.y)){ s=[{x:150,y:150}]; d="R"; sc=0; }
+                s.unshift(h); document.getElementById("sc").innerText="Score: "+sc;
+            }
+            setInterval(loop, 100);
+        </script>
+        """, height=450)
+    
+    elif game == "Memory Match":
+        st.components.v1.html("""
+        <div id="g" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; max-width:320px; margin:auto; background:#1E293B; padding:20px; border-radius:20px;"></div>
+        <script>
+            const icons=['🍎','🍎','💎','💎','🚀','🚀','🌟','🌟','🔥','🔥','🍕','🍕','🌈','🌈','⚽','⚽'];
+            let deck=icons.sort(()=>Math.random()-0.5), sel=[];
+            const g=document.getElementById("g");
+            deck.forEach((icon,i)=>{
+                const card=document.createElement("div");
+                card.style="height:60px; background:#334155; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer";
+                card.onclick=()=>{
+                    if(sel.length<2 && !card.innerText){
+                        card.innerText=icon; card.style.background="#38BDF8"; sel.push({card,icon});
+                        if(sel.length==2){
+                            if(sel[0].icon==sel[1].icon) sel=[];
+                            else setTimeout(()=>{ sel.forEach(s=>{s.card.innerText=""; s.card.style.background="#334155"}); sel=[]; },500);
+                        }
+                    }
+                };
+                g.appendChild(card);
+            });
+        </script>
+        """, height=400)
+
+with t4:
+    if st.button("Confirm Logout"):
+        st.session_state.clear()
+        st.rerun()
