@@ -228,10 +228,10 @@ with tabs[2]:
     elif game_mode == "Flash Match":
         st.components.v1.html(JS_CORE + """<div class="game-container"><div class="score-board">Level: <span id="f-lvl">1</span></div><div id="f-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;"></div><div id="f-go" class="overlay" style="display:none;"><h1>WELL DONE!</h1><button class="game-btn" onclick="f_init()">Next Level</button></div></div><script>let p=2, m=0, f=[]; const icons=['🍎','🚀','💎','🌟','🔥','🌈','🍕','⚽']; function f_init(){ m=0; f=[]; document.getElementById("f-go").style.display="none"; const g=document.getElementById("f-grid"); g.innerHTML=""; let d=[...icons.slice(0,p), ...icons.slice(0,p)].sort(()=>Math.random()-0.5); d.forEach(icon=>{ const c=document.createElement("div"); c.style="height:60px; background:#334155; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer"; c.onclick=()=>{ if(f.length<2 && !c.innerText){ c.innerText=icon; c.style.background="#38BDF8"; snd(400,"sine",0.1); f.push({c,icon}); if(f.length==2){ if(f[0].icon==f[1].icon){ m++; f=[]; if(m==p){ p=Math.min(p+1,8); document.getElementById("f-go").style.display="flex"; } } else { setTimeout(()=>{ f.forEach(x=>{x.c.innerText=""; x.c.style.background="#334155"}); f=[]; },500); } } } }; g.appendChild(c); }); } f_init();</script>""", height=450)
 
-# --- 6. ADMIN (THE BRIDGE & FILTERED TRENDS) ---
+# --- 6. ADMIN (THE BRIDGE & DATA MANAGEMENT) ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        admin_sub_tabs = st.tabs(["🔍 Search & Filter", "📈 Sentiment Trends", "🏆 Activity"])
+        admin_sub_tabs = st.tabs(["🔍 Search & Filter", "📈 Sentiment Trends", "🏆 Activity", "⚠️ Data Management"])
         
         logs_df = get_data("ChatLogs")
         if not logs_df.empty:
@@ -239,65 +239,44 @@ with tabs[3]:
             if 'sentiment' in logs_df.columns:
                 logs_df['sentiment'] = pd.to_numeric(logs_df['sentiment'], errors='coerce').fillna(0)
             
-            # SHARED FILTERING LOGIC (Applied to both tabs)
+            # --- TAB 1 & 2 (Previous logic remains the same) ---
             with admin_sub_tabs[0]:
                 st.subheader("📋 Interaction Explorer")
-                c1, c2, c3 = st.columns([2, 1, 1])
-                search_q = c1.text_input("🔍 Search Messages", key="admin_search_input")
-                u_sel = c2.selectbox("Filter User for All Tabs", ["All Users"] + list(logs_df['memberid'].unique()))
-                a_sel = c3.selectbox("Filter Agent", ["All"] + list(logs_df['agent'].unique()))
-                
-                f_df = logs_df.copy()
-                if search_q: f_df = f_df[f_df['content'].str.contains(search_q, case=False, na=False)]
-                if u_sel != "All Users": f_df = f_df[f_df['memberid'] == u_sel]
-                if a_sel != "All": f_df = f_df[f_df['agent'] == a_sel]
-                
-                st.dataframe(f_df.sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
+                # ... [Keep your existing Search & Filter code here] ...
+                # (I'm skipping for brevity, but keep your current code for this tab)
 
             with admin_sub_tabs[1]:
-                title_suffix = f" for {u_sel}" if u_sel != "All Users" else " (Global)"
-                st.subheader(f"📈 Sentiment Trends{title_suffix}")
-                
-                # Use the filtered dataframe for the chart
-                user_msgs = f_df[f_df['role'] == 'user'].copy()
-                
-                if not user_msgs.empty:
-                    # Grouping by day to see the trend
-                    trend_df = user_msgs.groupby(user_msgs['timestamp'].dt.date)['sentiment'].mean().reset_index()
-                    
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=trend_df['timestamp'], 
-                        y=trend_df['sentiment'], 
-                        mode='lines+markers',
-                        line=dict(color='#38BDF8', width=3),
-                        marker=dict(size=8, color='#6366F1'),
-                        name="Mood Score"
-                    ))
-                    fig.update_layout(
-                        template="plotly_dark",
-                        yaxis=dict(range=[-5.5, 5.5], title="Sentiment Score"),
-                        xaxis_title="Date",
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)'
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Individual summary for the filtered selection
-                    summary_h = user_msgs.groupby('memberid')['sentiment'].mean().reset_index()
-                    summary_h["Clara's Intuition"] = summary_h['sentiment'].apply(
-                        lambda x: "🌟 'They're thriving!'" if x > 1.5 else ("🩹 'They're hurting.'" if x < -1 else "⚖️ 'Stable.'")
-                    )
-                    st.table(summary_h[['memberid', 'sentiment', "Clara's Intuition"]])
-                else:
-                    st.info("No user messages found for this filter selection.")
+                # ... [Keep your existing Sentiment Trends code here] ...
 
             with admin_sub_tabs[2]:
-                st.subheader("Community Engagement")
-                rank_df = logs_df.groupby('memberid').size().reset_index(name='Total Interactions')
-                st.plotly_chart(go.Figure(go.Bar(x=rank_df['memberid'], y=rank_df['Total Interactions'], marker_color='#38BDF8')), use_container_width=True)
+                # ... [Keep your existing Activity code here] ...
+
+            # --- 🟢 NEW TAB 4: DATA MANAGEMENT (CLEAR LOGS) ---
+            with admin_sub_tabs[3]:
+                st.subheader("⚠️ Clear User Chat History")
+                st.warning("This action will permanently delete chat logs from Google Sheets. It cannot be undone.")
+                
+                user_list = sorted(logs_df['memberid'].unique())
+                target_user = st.selectbox("Select User to Clear", ["Select a User..."] + user_list)
+                
+                if target_user != "Select a User...":
+                    # Double-check confirmation
+                    confirm = st.checkbox(f"I am sure I want to delete ALL logs for {target_user}")
+                    
+                    if st.button(f"🗑️ Delete Logs for {target_user}", disabled=not confirm):
+                        with st.spinner("Wiping records..."):
+                            # Filter the dataframe to EXCLUDE the selected user
+                            remaining_logs = logs_df[logs_df['memberid'] != target_user]
+                            
+                            # Update the Google Sheet with the new (smaller) dataframe
+                            conn.update(worksheet="ChatLogs", data=remaining_logs)
+                            
+                            st.success(f"Successfully cleared all logs for {target_user}!")
+                            st.balloons()
+                            # Short delay then rerun to refresh the UI
+                            st.rerun()
         else:
-            st.info("No data available.")
+            st.info("No logs found to manage.")
     else:
         st.warning("Admin Access Required")
 # --- 7. LOGOUT ---
@@ -305,6 +284,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
