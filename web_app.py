@@ -134,28 +134,41 @@ if not st.session_state.auth["in"]:
             else: st.error("Invalid Credentials")
     st.stop()
 
-# --- 4. NAVIGATION ---
+# --- 4. NAVIGATION (WITH AUTO-SCROLL) ---
 tabs = st.tabs(["🏠 Cooper", "🛋️ Clara", "🎮 Games", "🛡️ Admin", "🚪 Logout"])
 
-# --- COOPER & CLARA (WHATSAPP STYLE) ---
+# --- COOPER & CLARA (WHATSAPP STYLE WITH AUTO-SCROLL) ---
 for i, agent in enumerate(["Cooper", "Clara"]):
     with tabs[i]:
         st.markdown(f'<div class="avatar-pulse">{"🤝" if agent=="Cooper" else "📊"}</div>', unsafe_allow_html=True)
+        
+        # Get the logs for the current agent
         logs = st.session_state.cooper_logs if agent == "Cooper" else st.session_state.clara_logs
         
-        chat_box = st.container(height=450, border=False)
+        # 🟢 THE FIX: Setting a height creates a scrollable area. 
+        # Streamlit automatically scrolls this to the bottom when the script reruns.
+        chat_box = st.container(height=500, border=False)
+        
         with chat_box:
             for m in logs:
                 div_class = "user-bubble" if m["role"] == "user" else "ai-bubble"
                 st.markdown(f'<div class="chat-bubble {div_class}">{m["content"]}</div>', unsafe_allow_html=True)
         
+        # Input field at the bottom
         if p := st.chat_input(f"Speak with {agent}...", key=f"chat_{agent}"):
+            # 1. Add user message to state and save
             logs.append({"role": "user", "content": p})
             save_log(agent, "user", p)
-            with st.spinner("Thinking..."):
+            
+            # 2. Trigger the "Thinking" state
+            with st.spinner(f"{agent} is thinking..."):
                 res = get_ai_response(agent, p, logs)
+            
+            # 3. Add AI response to state and save
             logs.append({"role": "assistant", "content": res})
             save_log(agent, "assistant", res)
+            
+            # 4. Rerun to push the new bubbles into the container and snap to bottom
             st.rerun()
 
 # --- 5. THE ARCADE (REPACKAGED) ---
@@ -269,6 +282,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
