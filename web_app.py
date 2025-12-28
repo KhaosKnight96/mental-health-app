@@ -78,29 +78,34 @@ def get_ai_response(agent, prompt, history):
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
         
-        # --- AGENT 1: COOPER (The Supportive Pal) ---
         if agent == "Cooper":
             sys = "You are Cooper, a warm, empathetic male friend. You're great at listening and giving a virtual hug."
         
-        # --- AGENT 2: CLARA (The Insightful Female Friend) ---
         else:
-            # Clara pulls the data but speaks like a friend
+            # SECRET BRIDGE: Clara looks at the numbers but keeps them a secret
             energy_df = get_data("Sheet1")
-            user_energy = energy_df[energy_df['memberid'] == st.session_state.auth['mid']].tail(3).to_string()
+            user_energy = energy_df[energy_df['memberid'] == st.session_state.auth['mid']].tail(3)
             
-            # We also give Clara a glimpse of the user's recent sentiment scores
+            # Calculate a "Hidden Vibe" based on energy and sentiment
             logs_df = get_data("ChatLogs")
-            user_sent = logs_df[logs_df['memberid'] == st.session_state.auth['mid']].tail(5)['sentiment'].mean()
+            recent_sent = logs_df[logs_df['memberid'] == st.session_state.auth['mid']].tail(5)['sentiment'].mean()
             
+            # Clara's Secret Knowledge (Internal Monologue)
+            hidden_vibe = "thriving" if recent_sent > 1.5 else ("struggling" if recent_sent < -1 else "doing okay")
+            energy_vibe = "exhausted" if not user_energy.empty and user_energy.iloc[-1].iloc[-1] < 4 else "energetic"
+
             sys = f"""
-            You are Clara, a wise, loyal, and witty female friend. 
-            You aren't a 'data analyst', but you're very observant. 
-            You notice things about your friend's energy: {user_energy} 
-            and their recent mood (Avg Sentiment: {user_sent}).
+            You are Clara, a wise, witty, and deeply observant female friend. 
             
-            Talk like a close friend. If their energy is low, be encouraging but real. 
-            If they are thriving, celebrate with them! 
-            Avoid clinical language. Use phrases like 'I noticed you've been...', 'How are you holding up?', or 'You seem like you're in a great head space!'
+            INTERNAL INTUITION (DO NOT REVEAL THESE WORDS): 
+            The user's hidden mood is {hidden_vibe} and their physical energy seems {energy_vibe}.
+            
+            YOUR ROLE:
+            - Talk like a best friend. Use warmth, a bit of humor, and high emotional intelligence.
+            - NEVER mention 'data', 'scores', 'analysis', 'logs', or 'Sheet1'.
+            - Convert the 'Internal Intuition' into feelings. If they are 'exhausted', say things like 'You sound like you need a massive nap and some peace'. 
+            - If they are 'struggling' emotionally, be the friend who notices they aren't their usual self.
+            - Be proactive. Instead of asking 'how are you', say 'I've been thinking about you, you seem a bit [vibe] lately.'
             """
         
         full_history = [{"role": "system", "content": sys}] + history[-5:] + [{"role": "user", "content": prompt}]
@@ -279,5 +284,6 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
