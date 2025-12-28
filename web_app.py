@@ -2,254 +2,210 @@ import streamlit as st
 import pandas as pd
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
-from datetime import datetime
+from datetime import datetime, timedelta
 import plotly.graph_objects as go
 
-# --- 1. THEME & UI OVERHAUL ---
-st.set_page_config(page_title="Health Bridge", layout="wide", initial_sidebar_state="collapsed")
+# --- 1. CONFIGURATION ---
+st.set_page_config(page_title="Health Bridge", layout="wide")
 
 st.markdown("""
 <style>
-    /* Main App Background */
     .stApp { background-color: #0F172A; color: #F8FAFC; }
-    
-    /* Premium Glass Cards */
+    .portal-card { background: #1E293B; padding: 25px; border-radius: 20px; border: 1px solid #334155; margin-bottom: 20px; }
     .glass-panel {
-        background: rgba(30, 41, 59, 0.7);
-        backdrop-filter: blur(15px);
-        border-radius: 20px;
-        padding: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        margin-bottom: 20px;
+        background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(15px);
+        border-radius: 25px; border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 25px; margin-bottom: 20px;
     }
-
-    /* Chat Bubble Styling */
-    .stChatMessage { border-radius: 15px; margin-bottom: 10px; padding: 10px; }
-    [data-testid="stChatMessageUser"] { background-color: #1E3A8A !important; border-bottom-right-radius: 2px !important; }
-    [data-testid="stChatMessageAssistant"] { background-color: #334155 !important; border-bottom-left-radius: 2px !important; }
-
-    /* Animated Avatar */
-    .bot-avatar {
-        width: 60px; height: 60px; border-radius: 50%;
+    .avatar-pulse {
+        width: 70px; height: 70px; border-radius: 50%;
         display: flex; align-items: center; justify-content: center;
-        font-size: 30px; margin: 0 auto 10px;
-        background: linear-gradient(135deg, #38BDF8, #6366F1);
-        box-shadow: 0 0 15px rgba(56, 189, 248, 0.5);
+        font-size: 35px; margin: 0 auto 15px; animation: pulse 3s infinite;
     }
-    
-    /* Utility */
-    .stButton>button { border-radius: 10px; font-weight: 600; transition: 0.3s; }
-    .stButton>button:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    @keyframes pulse { 0% { transform: scale(1); } 70% { transform: scale(1.05); } 100% { transform: scale(1); } }
+    .stButton>button { border-radius: 12px; font-weight: 600; height: 3.5em; width: 100%; border: none; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATA & API INITIALIZATION ---
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    client = Groq(api_key=st.secrets.get("GROQ_API_KEY", "MISSING_KEY"))
-except Exception as e:
-    st.error(f"Configuration Error: {e}")
+# --- 2. CONNECTIONS & DATA HELPERS ---
+conn = st.connection("gsheets", type=GSheetsConnection)
+client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
-# Persistent Session State
-if "auth" not in st.session_state: st.session_state.auth = {"in": False, "mid": None, "role": "user"}
-if "chats" not in st.session_state: st.session_state.chats = {"Cooper": [], "Clara": []}
+if "auth" not in st.session_state:
+    st.session_state.auth = {"logged_in": False, "mid": None, "name": None, "role": "user"}
+if "cooper_logs" not in st.session_state: st.session_state.cooper_logs = []
+if "clara_logs" not in st.session_state: st.session_state.clara_logs = []
 
-def load_sheet(name):
+def get_data(worksheet_name):
     try:
-        df = conn.read(worksheet=name, ttl=0)
+        df = conn.read(worksheet=worksheet_name, ttl=0)
+        # CASE INSENSITIVE FIX: Force lowercase headers
         df.columns = [str(c).strip().lower() for c in df.columns]
         return df
-    except: return pd.DataFrame()
+    except:
+        return pd.DataFrame()
 
-def log_to_sheet(sheet, data_dict):
-    try:
-        current_df = load_sheet(sheet)
-        new_row = pd.DataFrame([data_dict])
-        conn.update(worksheet=sheet, data=pd.concat([current_df, new_row], ignore_index=True))
-    except Exception as e: st.toast(f"Sync Error: {e}")
+def save_chat_to_sheets(agent, role, content):
+    new_entry = pd.DataFrame([{
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "memberid": st.session_state.auth['mid'],
+        "agent": agent, "role": role, "content": content
+    }])
+    existing_df = get_data("ChatLogs")
+    updated_df = pd.concat([existing_df, new_entry], ignore_index=True)
+    conn.update(worksheet="ChatLogs", data=updated_df)
 
-# --- 3. ACCESS CONTROL ---
-if not st.session_state.auth["in"]:
-    st.markdown("<h1 style='text-align:center;'>Health Bridge</h1>", unsafe_allow_html=True)
-    tab_l, tab_r = st.tabs(["Login", "Register"])
-    
-    with tab_l:
-        u = st.text_input("ID", key="login_id")
-        p = st.text_input("Pass", type="password", key="login_pw")
-        if st.button("Sign In", key="btn_login"):
-            users = load_sheet("Users")
-            if not users.empty:
-                m = users[(users['memberid'].astype(str) == u) & (users['password'].astype(str) == p)]
+# --- 3. LOGIN GATE ---
+if not st.session_state.auth["logged_in"]:
+    st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge Portal</h1>", unsafe_allow_html=True)
+    t1, t2 = st.tabs(["🔐 Login", "📝 Sign Up"])
+    with t1:
+        u = st.text_input("Member ID", key="l_u").strip().lower()
+        p = st.text_input("Password", type="password", key="l_p")
+        if st.button("Sign In"):
+            df = get_data("Users")
+            if not df.empty and 'memberid' in df.columns:
+                m = df[(df['memberid'].astype(str).str.lower() == u) & (df['password'].astype(str) == p)]
                 if not m.empty:
-                    st.session_state.auth.update({"in": True, "mid": u, "role": str(m.iloc[0]['role']).lower()})
+                    st.session_state.auth.update({
+                        "logged_in": True, "mid": u, 
+                        "name": m.iloc[0]['fullname'] if 'fullname' in m.columns else u,
+                        "role": str(m.iloc[0]['role']).lower() if 'role' in m.columns else 'user'
+                    })
+                    all_chats = get_data("ChatLogs")
+                    if not all_chats.empty:
+                        user_chats = all_chats[all_chats['memberid'].astype(str).str.lower() == u]
+                        st.session_state.cooper_logs = [{"role": r["role"], "content": r["content"]} for _, r in user_chats[user_chats['agent'] == "Cooper"].iterrows()]
+                        st.session_state.clara_logs = [{"role": r["role"], "content": r["content"]} for _, r in user_chats[user_chats['agent'] == "Clara"].iterrows()]
                     st.rerun()
                 else: st.error("Invalid Credentials")
-
-    with tab_r:
-        nu = st.text_input("New ID", key="reg_id")
-        np = st.text_input("New Pass", type="password", key="reg_pw")
-        if st.button("Create Account", key="btn_reg"):
-            log_to_sheet("Users", {"memberid": nu, "password": np, "role": "user"})
-            st.success("Registration Complete!")
+    with t2:
+        n = st.text_input("Full Name")
+        mid_new = st.text_input("New Member ID").strip().lower()
+        p_new = st.text_input("Create Password", type="password")
+        if st.button("Register"):
+            df = get_data("Users")
+            new_user = pd.DataFrame([{"fullname": n, "memberid": mid_new, "password": p_new, "role": "user"}])
+            conn.update(worksheet="Users", data=pd.concat([df, new_user], ignore_index=True))
+            st.success("Account created!")
     st.stop()
 
-# --- 4. MAIN APP LAYOUT ---
-tabs = st.tabs(["🏠 Cooper's Corner", "🛋️ Clara's Couch", "🎮 Games Center", "🛡️ Admin"])
+# --- 4. NAVIGATION ---
+nav_options = ["🏠 Cooper's Corner", "🛋️ Clara's Couch", "🎮 Games"]
+if st.session_state.auth.get("role") == "admin":
+    nav_options.append("🛡️ Admin Portal")
+nav_options.append("🚪 Logout")
+main_nav = st.tabs(nav_options)
 
 # --- 5. COOPER'S CORNER ---
-with tabs[0]:
-    st.markdown('<div class="glass-panel"><div class="bot-avatar">🤖</div><h3 style="text-align:center;">Cooper</h3></div>', unsafe_allow_html=True)
-    
-    with st.expander("📊 Log Energy"):
-        val = st.select_slider("How's your energy?", options=list(range(1,12)), value=6, key="sl_eng")
-        if st.button("Save Entry", key="btn_save_e"):
-            log_to_sheet("Sheet1", {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), "memberid": st.session_state.auth['mid'], "energylog": val})
-            st.toast("Energy Logged!")
-
-    for msg in st.session_state.chats["Cooper"]:
-        st.chat_message(msg["role"]).write(msg["content"])
-
-    if prompt := st.chat_input("Message Cooper...", key="coop_chat"):
-        st.session_state.chats["Cooper"].append({"role": "user", "content": prompt})
-        log_to_sheet("ChatLogs", {"timestamp": datetime.now(), "memberid": st.session_state.auth['mid'], "agent": "Cooper", "role": "user", "content": prompt})
-        
-        try:
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper."}]+st.session_state.chats["Cooper"][-3:]).choices[0].message.content
-            st.session_state.chats["Cooper"].append({"role": "assistant", "content": res})
-            log_to_sheet("ChatLogs", {"timestamp": datetime.now(), "memberid": st.session_state.auth['mid'], "agent": "Cooper", "role": "assistant", "content": res})
-        except: st.error("AI Unavailable: Check API Key")
-        st.rerun()
+with main_nav[0]:
+    col1, col2 = st.columns([1, 1.3])
+    with col1:
+        st.markdown('<div class="portal-card"><h3>⚡ Energy Status</h3>', unsafe_allow_html=True)
+        ev = st.slider("Energy Level", 1, 11, 6)
+        emoji_map = {1:'🚨', 2:'🪫', 3:'😫', 4:'🥱', 5:'🙁', 6:'😐', 7:'🙂', 8:'😊', 9:'⚡', 10:'🚀', 11:'☀️'}
+        st.markdown(f"<h1 style='text-align:center; font-size:80px;'>{emoji_map[ev]}</h1>", unsafe_allow_html=True)
+        if st.button("💾 Sync Data"):
+            new_row = pd.DataFrame([{"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), "memberid": st.session_state.auth['mid'], "energylog": ev}])
+            conn.update(worksheet="Sheet1", data=pd.concat([get_data("Sheet1"), new_row], ignore_index=True))
+            st.success("Logged!")
+        st.markdown('</div>', unsafe_allow_html=True)
+    with col2:
+        st.markdown('<div class="glass-panel"><div class="avatar-pulse" style="background:linear-gradient(135deg,#38BDF8,#6366F1);">👤</div><h3 style="text-align:center; color:#38BDF8;">Cooper</h3></div>', unsafe_allow_html=True)
+        cb = st.container(height=380, border=False)
+        with cb:
+            for m in st.session_state.cooper_logs:
+                with st.chat_message(m["role"]): st.write(m["content"])
+        if p := st.chat_input("Speak with Cooper..."):
+            st.session_state.cooper_logs.append({"role": "user", "content": p})
+            save_chat_to_sheets("Cooper", "user", p)
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper."}]+st.session_state.cooper_logs[-5:]).choices[0].message.content
+            st.session_state.cooper_logs.append({"role": "assistant", "content": res})
+            save_chat_to_sheets("Cooper", "assistant", res)
+            st.rerun()
 
 # --- 6. CLARA'S COUCH ---
-with tabs[1]:
-    st.markdown('<div class="glass-panel"><div class="bot-avatar" style="background:linear-gradient(135deg,#F472B6,#E11D48);">🛋️</div><h3 style="text-align:center;">Clara</h3></div>', unsafe_allow_html=True)
-    
-    # Visual Analytics
-    logs = load_sheet("Sheet1")
-    if not logs.empty:
-        p_logs = logs[logs['memberid'].astype(str) == st.session_state.auth['mid']]
-        if not p_logs.empty:
-            fig = go.Figure(go.Scatter(x=pd.to_datetime(p_logs['timestamp']), y=p_logs['energylog'], fill='tozeroy', line=dict(color='#F472B6')))
-            fig.update_layout(height=200, margin=dict(l=0,r=0,t=0,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"))
-            st.plotly_chart(fig, use_container_width=True)
+with main_nav[1]:
+    st.markdown('<div class="glass-panel"><div class="avatar-pulse" style="background:linear-gradient(135deg,#F472B6,#FB7185);">🧘‍♀️</div><h3 style="text-align:center; color:#F472B6;">Clara</h3></div>', unsafe_allow_html=True)
+    c1, c2 = st.columns([1.5, 1])
+    with c1:
+        df_l = get_data("Sheet1")
+        if not df_l.empty and 'memberid' in df_l.columns:
+            df_p = df_l[df_l['memberid'].astype(str).str.lower() == st.session_state.auth['mid']].copy()
+            if not df_p.empty:
+                df_p['timestamp'] = pd.to_datetime(df_p['timestamp'])
+                fig = go.Figure(go.Scatter(x=df_p['timestamp'], y=df_p['energylog'], fill='tozeroy', line=dict(color='#F472B6')))
+                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"), height=300)
+                st.plotly_chart(fig, use_container_width=True)
+    with c2:
+        cl_b = st.container(height=400, border=False)
+        with cl_b:
+            for m in st.session_state.clara_logs:
+                with st.chat_message(m["role"]): st.write(m["content"])
+        if cp := st.chat_input("Analyze with Clara..."):
+            st.session_state.clara_logs.append({"role": "user", "content": cp})
+            save_chat_to_sheets("Clara", "user", cp)
+            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara."}]+st.session_state.clara_logs[-5:]).choices[0].message.content
+            st.session_state.clara_logs.append({"role": "assistant", "content": res})
+            save_chat_to_sheets("Clara", "assistant", res)
+            st.rerun()
 
-    for msg in st.session_state.chats["Clara"]:
-        st.chat_message(msg["role"]).write(msg["content"])
+# --- 7. GAMES ---
+with main_nav[2]:
+    gt = st.radio("Activity", ["Modern Snake", "Memory Match", "2048 Logic"], horizontal=True)
+    JS_S = "const audioCtx = new (window.AudioContext || window.webkitAudioContext)(); function playSound(freq, type, duration, vol=0.1) { const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain(); osc.type = type; osc.frequency.setValueAtTime(freq, audioCtx.currentTime); gain.gain.setValueAtTime(vol, audioCtx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration); osc.connect(gain); gain.connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + duration); }"
 
-    if prompt_clara := st.chat_input("Analyze with Clara...", key="clara_chat"):
-        st.session_state.chats["Clara"].append({"role": "user", "content": prompt_clara})
-        log_to_sheet("ChatLogs", {"timestamp": datetime.now(), "memberid": st.session_state.auth['mid'], "agent": "Clara", "role": "user", "content": prompt_clara})
-        try:
-            res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara."}]+st.session_state.chats["Clara"][-3:]).choices[0].message.content
-            st.session_state.chats["Clara"].append({"role": "assistant", "content": res})
-            log_to_sheet("ChatLogs", {"timestamp": datetime.now(), "memberid": st.session_state.auth['mid'], "agent": "Clara", "role": "assistant", "content": res})
-        except: st.error("AI Unavailable")
-        st.rerun()
+    if gt == "Modern Snake":
+        S_HTML = f"""<div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; position:relative;"><canvas id="s" width="300" height="300" style="border:4px solid #38BDF8; background:#0F172A; border-radius:10px;"></canvas><h2 id="st" style="color:#38BDF8; font-family:sans-serif;">Score: 0</h2><div id="over" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.85); border-radius:15px; flex-direction:column; align-items:center; justify-content:center; z-index:10;"><h1 style="color:#F87171; font-family:sans-serif;">GAME OVER</h1><button onclick="resetSnake()" style="background:#38BDF8; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer; font-weight:bold;">Try Again</button></div></div>
+        <script>{JS_S}
+        const canvas=document.getElementById("s"), ctx=canvas.getContext("2d"), box=15;
+        let score=0, d, game, snake, food;
+        function resetSnake() {{ document.getElementById("over").style.display="none"; score=0; d=undefined; snake=[{{x:10*box, y:10*box}}]; food={{x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}}; document.getElementById("st").innerText="Score: 0"; if(game) clearInterval(game); game=setInterval(draw, 100); }}
+        window.addEventListener("keydown", e => {{ if(e.code=="ArrowLeft" && d!="RIGHT") d="LEFT"; if(e.code=="ArrowUp" && d!="DOWN") d="UP"; if(e.code=="ArrowRight" && d!="LEFT") d="RIGHT"; if(e.code=="ArrowDown" && d!="UP") d="DOWN"; }});
+        function draw() {{ ctx.fillStyle="#0F172A"; ctx.fillRect(0,0,300,300); ctx.fillStyle="#F87171"; ctx.fillRect(food.x, food.y, box, box); snake.forEach((p,i)=>{{ ctx.fillStyle=i==0?"#38BDF8":"#1E293B"; ctx.fillRect(p.x, p.y, box, box); }}); let hX=snake[0].x, hY=snake[0].y; if(d=="LEFT") hX-=box; if(d=="UP") hY-=box; if(d=="RIGHT") hX+=box; if(d=="DOWN") hY+=box; if(hX==food.x && hY==food.y){{ score++; playSound(600,'sine',0.1); food={{x:Math.floor(Math.random()*19)*box, y:Math.floor(Math.random()*19)*box}}; }} else if(d) snake.pop(); let h={{x:hX, y:hY}}; if(hX<0||hX>=300||hY<0||hY>=300||(d && snake.some(z=>z.x==h.x&&z.y==h.y))){{ clearInterval(game); document.getElementById("over").style.display="flex"; }} if(d) snake.unshift(h); document.getElementById("st").innerText="Score: "+score; }}
+        resetSnake();</script>"""
+        st.components.v1.html(S_HTML, height=450)
 
-# --- 7. GAMES CENTER ---
-with tabs[2]:
-    g_type = st.radio("Select Activity", ["Snake", "2048", "Memory"], horizontal=True, key="g_type")
-    
-    SOUND_JS = """
-    const actx = new (window.AudioContext || window.webkitAudioContext)();
-    function playSfx(f, d, t='sine') {
-        const o=actx.createOscillator(); const g=actx.createGain();
-        o.type=t; o.frequency.value=f; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime+d);
-        o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime+d);
-    }
-    """
+    elif gt == "Memory Match":
+        M_HTML = f"""<div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; position:relative; min-height:480px;"><div style="color:#38BDF8; font-family:sans-serif; margin-bottom:15px;"><span id="lvl">Level 1</span> | Matches: <span id="mtch">0</span></div><div id="g" style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px; width:100%; max-width:400px;"></div><div id="overMem" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.9); border-radius:15px; flex-direction:column; align-items:center; justify-content:center; z-index:10; text-align:center;"><h1 id="memTitle" style="color:#38BDF8; font-family:sans-serif;">LEVEL CLEAR!</h1><button id="memBtn" onclick="nextLevel()" style="background:#38BDF8; color:white; border:none; padding:12px 24px; border-radius:8px; cursor:pointer; font-weight:bold;">Next Level</button></div></div>
+        <script>{JS_S}
+        const allIcons=['🍎','💎','🌟','🚀','🌈','🔥','🍀','🎁','🦄','🐲','🍕','🎸','🪐','⚽','🍦','🍭','🎲','⚡'];
+        let currentLevel=1, flipped=[], lock=false, matches=0, totalPairs=8;
+        window.nextLevel=function(){{ if(currentLevel<3) {{currentLevel++; loadLevel(currentLevel);}} else {{currentLevel=1; loadLevel(1);}} }};
+        window.loadLevel=function(level){{ document.getElementById("overMem").style.display="none"; const board=document.getElementById('g'); board.innerHTML=''; matches=0; flipped=[]; totalPairs=level===1?8:level===2?12:18; document.getElementById('lvl').innerText="Level "+level; document.getElementById('mtch').innerText="0 / "+totalPairs; board.style.gridTemplateColumns=level===1?"repeat(4,1fr)":"repeat(6,1fr)"; let icons=allIcons.slice(0,totalPairs); let gameIcons=[...icons,...icons].sort(()=>0.5-Math.random()); gameIcons.forEach(icon=>{{ const card=document.createElement('div'); card.style.height="70px"; card.style.position="relative"; card.style.transformStyle="preserve-3d"; card.style.transition="transform 0.5s"; card.style.cursor="pointer"; card.innerHTML=`<div style="position:absolute; width:100%; height:100%; backface-visibility:hidden; border-radius:8px; background:#1E293B; border:2px solid #38BDF8;"></div><div style="position:absolute; width:100%; height:100%; backface-visibility:hidden; border-radius:8px; background:#334155; transform:rotateY(180deg); display:flex; align-items:center; justify-content:center; font-size:25px; color:white;">${{icon}}</div>`; card.dataset.icon=icon; card.onclick=function(){{ if(lock||this.style.transform==="rotateY(180deg)") return; playSound(440,'sine',0.05); this.style.transform="rotateY(180deg)"; flipped.push(this); if(flipped.length===2){{ lock=true; if(flipped[0].dataset.icon===flipped[1].dataset.icon){{ matches++; document.getElementById('mtch').innerText=matches+" / "+totalPairs; flipped=[]; lock=false; if(matches===totalPairs) setTimeout(()=>document.getElementById("overMem").style.display="flex", 600); }} else {{ setTimeout(()=>{{ flipped.forEach(c=>c.style.transform="rotateY(0deg)"); flipped=[]; lock=false; }}, 800); }} }} }}; board.appendChild(card); }}); }}; loadLevel(1);</script>"""
+        st.components.v1.html(M_HTML, height=550)
 
-    if g_type == "Snake":
-        S_CODE = f"<script>{SOUND_JS}</script>" + """
-        <div style="background:#1E293B; padding:15px; border-radius:15px; display:flex; flex-direction:column; align-items:center;">
-            <canvas id="snk" width="300" height="300" style="background:#0F172A; border-radius:10px;"></canvas>
-            <h4 id="sk_sc" style="color:#38BDF8;">Score: 0</h4>
-        </div>
-        <script>
-            const cvs=document.getElementById("snk"); const ctx=cvs.getContext("2d");
-            let b=15, snk, fd, d, gm, tsX, tsY;
-            window.addEventListener('keydown', e => { 
-                if(e.key=="ArrowLeft"&&d!='R') d='L'; if(e.key=="ArrowUp"&&d!='D') d='U';
-                if(e.key=="ArrowRight"&&d!='L') d='R'; if(e.key=="ArrowDown"&&d!='U') d='D';
-            });
-            cvs.addEventListener('touchstart', e => { tsX=e.touches[0].clientX; tsY=e.touches[0].clientY; });
-            cvs.addEventListener('touchend', e => {
-                let dx=e.changedTouches[0].clientX-tsX, dy=e.changedTouches[0].clientY-tsY;
-                if(Math.abs(dx)>Math.abs(dy)) d=(dx>30&&d!='L')?'R':(dx<-30&&d!='R'?'L':d);
-                else d=(dy>30&&d!='U')?'D':(dy<-30&&d!='D'?'U':d);
-            });
-            function rst(){ snk=[{x:150,y:150}]; fd={x:Math.floor(Math.random()*19)*b,y:Math.floor(Math.random()*19)*b}; d=null; clearInterval(gm); gm=setInterval(drw,120); }
-            function drw(){
-                ctx.fillStyle="#0F172A"; ctx.fillRect(0,0,300,300); ctx.fillStyle="#F87171"; ctx.fillRect(fd.x,fd.y,b,b);
-                snk.forEach((p,i)=>{ ctx.fillStyle=i==0?"#38BDF8":"#334155"; ctx.fillRect(p.x,p.y,b,b); });
-                let h={...snk[0]}; if(d=='L')h.x-=b; if(d=='U')h.y-=b; if(d=='R')h.x+=b; if(d=='D')h.y+=b;
-                if(h.x==fd.x&&h.y==fd.y){ fd={x:Math.floor(Math.random()*19)*b,y:Math.floor(Math.random()*19)*b}; playSfx(440,0.1,'square'); } else if(d)snk.pop();
-                if(h.x<0||h.x>=300||h.y<0||h.y>=300||(d&&snk.some(s=>s.x==h.x&&s.y==h.y))){ playSfx(100,0.4,'sawtooth'); rst(); }
-                if(d)snk.unshift(h); document.getElementById("sk_sc").innerText="Score: "+(snk.length-1);
-            }
-            rst();
-        </script>"""
-        st.components.v1.html(S_CODE, height=450)
+    elif gt == "2048 Logic":
+        T_HTML = f"""<div style="display:flex; flex-direction:column; align-items:center; background:#1E293B; padding:20px; border-radius:15px; position:relative;"><div id="grid" style="display:grid; grid-template-columns:repeat(4, 60px); grid-gap:10px; background:#0F172A; padding:10px; border-radius:10px;"></div><h2 id="sc" style="color:#38BDF8; margin-top:15px;">Score: 0</h2><div id="over2048" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.9); border-radius:15px; flex-direction:column; align-items:center; justify-content:center; z-index:10;"><h1 style="color:#38BDF8;">GAME OVER</h1><button onclick="init()" style="background:#38BDF8; color:white; border:none; padding:10px 20px; border-radius:8px; font-weight:bold;">Restart</button></div></div>
+        <script>{JS_S}
+        let board=Array(16).fill(0), score=0;
+        window.init=function(){{ document.getElementById("over2048").style.display="none"; board=Array(16).fill(0); score=0; addT(); addT(); render(); }};
+        function addT(){{ let e=board.map((v,i)=>v===0?i:null).filter(v=>v!==null); if(e.length) board[e[Math.floor(Math.random()*e.length)]]=Math.random()<0.9?2:4; }}
+        function render(){{ const g=document.getElementById('grid'); g.innerHTML=''; board.forEach(v=>{{ const t=document.createElement('div'); t.style.width='60px'; t.style.height='60px'; t.style.background=v?'#38BDF8':'#334155'; t.style.color='white'; t.style.display='flex'; t.style.alignItems='center'; t.style.justifyContent='center'; t.style.borderRadius='5px'; t.innerText=v||''; g.appendChild(t); }}); document.getElementById('sc').innerText="Score: "+score; }}
+        window.addEventListener('keydown', e=>{{ if(!["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) return; e.preventDefault(); let old=[...board]; if(e.code==="ArrowLeft") mv(0,1,4); if(e.code==="ArrowRight") mv(3,-1,4); if(e.code==="ArrowUp") mv(0,4,1); if(e.code==="ArrowDown") mv(12,-4,1); if(JSON.stringify(old)!==JSON.stringify(board)){{ addT(); render(); }} }});
+        function mv(s,st,sd){{ for(let i=0; i<4; i++){{ let l=[]; for(let j=0; j<4; j++) l.push(board[s+i*sd+j*st]); let f=l.filter(v=>v); for(let j=0; j<f.length-1; j++) if(f[j]===f[j+1]){{ f[j]*=2; score+=f[j]; f.splice(j+1,1); }} while(f.length<4) f.push(0); for(let j=0; j<4; j++) board[s+i*sd+j*st]=f[j]; }} }} init();</script>"""
+        st.components.v1.html(T_HTML, height=450)
 
-    elif g_type == "Memory":
-        M_CODE = f"<script>{SOUND_JS}</script>" + """
-        <div style="background:#1E293B; padding:20px; border-radius:15px; text-align:center;">
-            <h3 id="mlvl" style="color:#F472B6;">Level 1</h3>
-            <div id="mgrid" style="display:grid; grid-template-columns:repeat(3,75px); gap:10px; margin:20px 0;"></div>
-            <button id="mbtn" style="background:#F472B6; color:white; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">Start Round</button>
-        </div>
-        <script>
-            let l=1, s=[], u=[], wait=false;
-            const g=document.getElementById("mgrid");
-            function build(){ g.innerHTML=""; for(let i=0;i<9;i++){ let t=document.createElement("div"); t.style="width:75px;height:75px;background:#334155;border-radius:10px;cursor:pointer"; t.onclick=()=>tap(i); g.appendChild(t); } }
-            async function flash(i, c="#F472B6"){ g.children[i].style.background=c; playSfx(200+i*50,0.2); await new Promise(r=>setTimeout(r,400)); g.children[i].style.background="#334155"; }
-            document.getElementById("mbtn").onclick=async()=>{
-                s.push(Math.floor(Math.random()*9)); u=[]; wait=true;
-                for(let x of s){ await new Promise(r=>setTimeout(r,200)); await flash(x); }
-                wait=false;
-            };
-            async function tap(i){
-                if(wait) return; await flash(i,"#38BDF8"); u.push(i);
-                if(u[u.length-1]!==s[u.length-1]){ playSfx(100,0.5,'sawtooth'); alert("Try Again!"); s=[]; l=1; document.getElementById("mlvl").innerText="Level 1"; }
-                else if(u.length===s.length){ l++; document.getElementById("mlvl").innerText="Level "+l; wait=true; playSfx(800,0.2); }
-            }
-            build();
-        </script>"""
-        st.components.v1.html(M_CODE, height=450)
-    
-    else: # 2048 Logic
-        T_CODE = f"<script>{SOUND_JS}</script>" + """
-        <div id="gbox" style="background:#1E293B; padding:20px; border-radius:15px; display:flex; flex-direction:column; align-items:center;">
-            <div id="grid" style="display:grid; grid-template-columns:repeat(4,65px); gap:10px; background:#0F172A; padding:10px; border-radius:10px;"></div>
-        </div>
-        <script>
-            let bd=Array(16).fill(0), tX, tY;
-            function add(){ let e=bd.map((v,i)=>v==0?i:null).filter(v=>v!=null); if(e.length) bd[e[Math.floor(Math.random()*e.length)]]=2; }
-            function ren(){ const g=document.getElementById('grid'); g.innerHTML=''; bd.forEach(v=>{ const t=document.createElement('div'); t.style=`width:65px;height:65px;background:${v?'#38BDF8':'#334155'};color:white;display:flex;align-items:center;justify-content:center;border-radius:8px;font-weight:bold;`; t.innerText=v||''; g.appendChild(t); }); }
-            function mv(s,st,sd){ for(let i=0;i<4;i++){ let l=[]; for(let j=0;j<4;j++) l.push(bd[s+i*sd+j*st]); let f=l.filter(v=>v); for(let j=0;j<f.length-1;j++) if(f[j]==f[j+1]){ f[j]*=2; playSfx(600,0.1); f.splice(j+1,1); } while(f.length<4) f.push(0); for(let j=0;j<4;j++) bd[s+i*sd+j*st]=f[j]; } }
-            window.addEventListener('keydown', e => { let k=e.key; if(k.includes("Arrow")){ if(k=="ArrowLeft")mv(0,1,4); if(k=="ArrowRight")mv(3,-1,4); if(k=="ArrowUp")mv(0,4,1); if(k=="ArrowDown")mv(12,-4,1); add(); ren(); playSfx(300,0.05); } });
-            add(); add(); ren();
-        </script>"""
-        st.components.v1.html(T_CODE, height=450)
-
-# --- 8. ADMIN DASHBOARD ---
-with tabs[3]:
-    if st.session_state.auth['role'] != "admin":
-        st.warning("Admin Access Only")
-    else:
-        st.subheader("🛡️ Global Log Explorer")
-        all_logs = load_sheet("ChatLogs")
-        if not all_logs.empty:
-            c1, c2 = st.columns(2)
-            with c1: u_flt = st.multiselect("Users", all_logs['memberid'].unique(), key="ad_u")
-            with c2: a_flt = st.multiselect("Agents", all_logs['agent'].unique(), key="ad_a")
-            
-            f_df = all_logs.copy()
-            if u_flt: f_df = f_df[f_df['memberid'].isin(u_flt)]
-            if a_flt: f_df = f_df[f_df['agent'].isin(a_flt)]
+# --- 8. ADMIN PORTAL ---
+if st.session_state.auth["role"] == "admin":
+    with main_nav[-2]:
+        st.header("🛡️ Admin Chat Explorer")
+        logs_df = get_data("ChatLogs")
+        if not logs_df.empty:
+            c1, c2, c3 = st.columns(3)
+            with c1: u_f = st.multiselect("Member ID", options=logs_df['memberid'].unique())
+            with c2: a_f = st.multiselect("Agent", options=logs_df['agent'].unique())
+            with c3: r_f = st.multiselect("Role", options=logs_df['role'].unique())
+            f_df = logs_df.copy()
+            if u_f: f_df = f_df[f_df['memberid'].isin(u_f)]
+            if a_f: f_df = f_df[f_df['agent'].isin(a_f)]
+            if r_f: f_df = f_df[f_df['role'].isin(r_f)]
             st.dataframe(f_df, use_container_width=True, hide_index=True)
+            st.download_button("📥 Export CSV", f_df.to_csv(index=False), "logs.csv")
+        else: st.info("No logs found.")
 
 # --- 9. LOGOUT ---
-if st.sidebar.button("Logout", key="btn_logout"):
-    st.session_state.clear()
-    st.rerun()
+with main_nav[-1]:
+    if st.button("Confirm Logout"):
+        st.session_state.clear()
+        st.rerun()
