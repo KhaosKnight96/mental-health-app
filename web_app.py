@@ -252,91 +252,82 @@ with tabs[2]:
                 });
             } f_init();
         </script>""", height=450)
-# --- 6. ADMIN (FIXED FOR DATETIME ERRORS) ---
+# --- 6. ADMIN (LOGS + SENTIMENT TRACKER) ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        st.subheader("🛡️ Admin Control Center")
+        admin_sub_tabs = st.tabs(["📋 Chat Explorer", "📊 Sentiment Tracker", "🏆 Activity"])
         
-        # Load Data
         logs_df = get_data("ChatLogs")
-        
         if not logs_df.empty:
-            # Persistent search bar
-            search_query = st.text_input("🔍 Search conversation content...", placeholder="Type to filter logs...")
+            # Shared Timestamp Fix
+            logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'], errors='coerce', format='mixed')
+            
+            # --- TAB 1: LOGS ---
+            with admin_sub_tabs[0]:
+                search_q = st.text_input("🔍 Search Messages")
+                c1, c2 = st.columns(2)
+                u_sel = c1.selectbox("User", ["All"] + list(logs_df['memberid'].unique()))
+                a_sel = c2.selectbox("Agent", ["All"] + list(logs_df['agent'].unique()))
+                
+                f_df = logs_df.copy()
+                if search_q: f_df = f_df[f_df['content'].str.contains(search_q, case=False, na=False)]
+                if u_sel != "All": f_df = f_df[f_df['memberid'] == u_sel]
+                if a_sel != "All": f_df = f_df[f_df['agent'] == a_sel]
+                
+                st.dataframe(f_df.sort_values('timestamp', ascending=False), use_container_width=True)
 
-            # Filter Controls Row
-            col1, col2, col3, col4 = st.columns([1.5, 1, 1, 1])
-            
-            with col1:
-                # "Filter By" Sort Order
-                sort_order = st.selectbox("📅 Sort By", ["Most Recent", "Oldest First"])
-            
-            with col2:
-                # Filter by User
-                user_list = ["All Users"] + sorted(logs_df['memberid'].unique().tolist())
-                selected_user = st.selectbox("👤 User", user_list)
-            
-            with col3:
-                # Filter by Agent
-                agent_list = ["All Agents"] + sorted(logs_df['agent'].unique().tolist())
-                selected_agent = st.selectbox("🤖 Agent", agent_list)
-            
-            with col4:
-                # Extra Filter: By Role
-                role_list = ["All Roles", "user", "assistant"]
-                selected_role = st.selectbox("💬 Role", role_list)
+            # --- TAB 2: SENTIMENT TRACKER ---
+            with admin_sub_tabs[1]:
+                st.subheader("🧠 Emotional Pulse")
+                
+                # Basic Sentiment Analysis Logic
+                pos_words = ['happy', 'good', 'great', 'better', 'energy', 'thanks', 'love', 'excited', 'improving']
+                neg_words = ['tired', 'sad', 'bad', 'hard', 'stress', 'burnt', 'pain', 'struggling', 'exhausted']
 
-            # --- Data Processing Logic ---
-            f_df = logs_df.copy()
+                def calc_sentiment(text):
+                    text = str(text).lower()
+                    score = 0
+                    for w in pos_words: 
+                        if w in text: score += 1
+                    for w in neg_words: 
+                        if w in text: score -= 1
+                    return score
 
-            # THE FIX: Handle mixed date formats (seconds vs no seconds)
-            f_df['timestamp'] = pd.to_datetime(f_df['timestamp'], errors='coerce', format='mixed')
+                # Process user messages only (to see how members are feeling)
+                user_msgs = logs_df[logs_df['role'] == 'user'].copy()
+                user_msgs['sentiment'] = user_msgs['content'].apply(calc_sentiment)
+                
+                # Group by User
+                sentiment_rank = user_msgs.groupby('memberid')['sentiment'].mean().reset_index()
+                sentiment_rank.columns = ['Member ID', 'Average Mood Score']
+                
+                # Visual Chart
+                fig_sent = go.Figure(go.Bar(
+                    x=sentiment_rank['Member ID'],
+                    y=sentiment_rank['Average Mood Score'],
+                    marker_color=sentiment_rank['Average Mood Score'].apply(lambda x: '#22c55e' if x >= 0 else '#ef4444')
+                ))
+                fig_sent.update_layout(title="User Sentiment (Green = Positive, Red = Struggling)", template="plotly_dark")
+                st.plotly_chart(fig_sent, use_container_width=True)
+                
+                st.info("💡 **Insight:** A negative score suggests the user might be experiencing stress or burnout. Reach out via Cooper for support.")
 
-            # 1. Search Filter
-            if search_query:
-                f_df = f_df[f_df['content'].str.contains(search_query, case=False, na=False)]
-            
-            # 2. User Filter
-            if selected_user != "All Users":
-                f_df = f_df[f_df['memberid'] == selected_user]
-            
-            # 3. Agent Filter
-            if selected_agent != "All Agents":
-                f_df = f_df[f_df['agent'] == selected_agent]
-            
-            # 4. Role Filter
-            if selected_role != "All Roles":
-                f_df = f_df[f_df['role'] == selected_role]
-
-            # 5. Sorting Logic
-            if sort_order == "Most Recent":
-                f_df = f_df.sort_values(by='timestamp', ascending=False)
-            else:
-                f_df = f_df.sort_values(by='timestamp', ascending=True)
-
-            # Display Results
-            st.write(f"Showing **{len(f_df)}** entries:")
-            st.dataframe(
-                f_df, 
-                use_container_width=True, 
-                hide_index=True,
-                column_config={
-                    "timestamp": st.column_config.DatetimeColumn("Time", format="D MMM, h:mm a"),
-                    "content": st.column_config.TextColumn("Message Content", width="large")
-                }
-            )
-            
-            # Download Button
-            csv = f_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Export CSV", data=csv, file_name="health_bridge_logs.csv", mime="text/csv")
-            
+            # --- TAB 3: ACTIVITY LEADERBOARD ---
+            with admin_sub_tabs[2]:
+                st.subheader("Community Engagement Rankings")
+                rank_df = logs_df.groupby('memberid').size().reset_index(name='Total Interactions')
+                rank_df = rank_df.sort_values(by='Total Interactions', ascending=False)
+                st.table(rank_df)
+        else:
+            st.info("Waiting for data to populate logs...")
     else:
-        st.warning("⛔ Access Denied. Admin privileges required.")
+        st.warning("Admin access required.")
 # --- 7. LOGOUT ---
 with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
