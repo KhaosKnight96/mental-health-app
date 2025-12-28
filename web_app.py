@@ -5,143 +5,6 @@ from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 import plotly.graph_objects as go
 
-# --- 1. CONFIGURATION & ENHANCED STYLING ---
-st.set_page_config(page_title="Health Bridge", layout="wide", initial_sidebar_state="collapsed")
-
-st.markdown("""
-<style>
-    .stApp { background-color: #0F172A; color: #F8FAFC; }
-    
-    /* Glass Effect Panels */
-    .glass-card {
-        background: rgba(30, 41, 59, 0.7);
-        backdrop-filter: blur(12px);
-        border-radius: 24px;
-        padding: 25px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        margin-bottom: 20px;
-    }
-    
-    /* Animated Avatars */
-    .avatar-circle {
-        width: 80px; height: 80px; border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 40px; margin: 0 auto 15px;
-        animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-        0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4); }
-        70% { box-shadow: 0 0 0 15px rgba(56, 189, 248, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
-    }
-    
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #1E293B;
-        border-radius: 12px 12px 0 0;
-        padding: 10px 20px;
-        color: white;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# --- 2. DATA HELPERS ---
-conn = st.connection("gsheets", type=GSheetsConnection)
-client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-
-if "auth" not in st.session_state:
-    st.session_state.auth = {"logged_in": False, "mid": None, "role": "user"}
-if "cooper_logs" not in st.session_state: st.session_state.cooper_logs = []
-if "clara_logs" not in st.session_state: st.session_state.clara_logs = []
-
-def get_data(worksheet_name):
-    try:
-        df = conn.read(worksheet=worksheet_name, ttl=0)
-        df.columns = [str(c).strip().lower() for c in df.columns]
-        return df
-    except: return pd.DataFrame()
-
-def save_chat(agent, role, content):
-    new_entry = pd.DataFrame([{
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "memberid": st.session_state.auth['mid'],
-        "agent": agent, "role": role, "content": content
-    }])
-    conn.update(worksheet="ChatLogs", data=pd.concat([get_data("ChatLogs"), new_entry], ignore_index=True))
-
-# --- 3. LOGIN --- (Omitted for brevity - same logic as your building block)
-if not st.session_state.auth["logged_in"]:
-    # ... (Keep your existing login code here)
-    st.stop()
-
-# --- 4. NAVIGATION ---
-tabs = st.tabs(["🏠 Cooper's Corner", "🛋️ Clara's Couch", "🎮 Games", "🛡️ Admin" if st.session_state.auth['role'] == "admin" else "🚪 Exit"])
-
-# --- 5. COOPER'S CORNER ---
-with tabs[0]:
-    st.markdown("""
-        <div class="glass-card">
-            <div class="avatar-circle" style="background: linear-gradient(135deg, #38BDF8, #6366F1);">🤖</div>
-            <h2 style="text-align:center; color:#38BDF8; margin-top:0;">Cooper</h2>
-            <p style="text-align:center; opacity:0.8;">Your daily energy companion</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    with st.expander("⚡ Log Your Energy Level", expanded=False):
-        ev = st.select_slider("Select Status", options=list(range(1,12)), value=6, key="c_energy")
-        if st.button("Save Entry", key="c_save"):
-            new_row = pd.DataFrame([{"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), "memberid": st.session_state.auth['mid'], "energylog": ev}])
-            conn.update(worksheet="Sheet1", data=pd.concat([get_data("Sheet1"), new_row], ignore_index=True))
-            st.toast("Success!")
-
-    # Chat interface
-    for m in st.session_state.cooper_logs:
-        st.chat_message(m["role"]).write(m["content"])
-    
-    if p := st.chat_input("Message Cooper...", key="chat_coop"):
-        st.session_state.cooper_logs.append({"role": "user", "content": p})
-        save_chat("Cooper", "user", p)
-        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper."}]+st.session_state.cooper_logs[-3:]).choices[0].message.content
-        st.session_state.cooper_logs.append({"role": "assistant", "content": res})
-        save_chat("Cooper", "assistant", res)
-        st.rerun()
-
-# --- 6. CLARA'S COUCH ---
-with tabs[1]:
-    st.markdown("""
-        <div class="glass-card">
-            <div class="avatar-circle" style="background: linear-gradient(135deg, #F472B6, #FB7185);">🧘‍♀️</div>
-            <h2 style="text-align:center; color:#F472B6; margin-top:0;">Clara</h2>
-            <p style="text-align:center; opacity:0.8;">Data-driven wellness insights</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Analytics
-    df_l = get_data("Sheet1")
-    if not df_l.empty:
-        df_p = df_l[df_l['memberid'].astype(str).str.lower() == st.session_state.auth['mid']].copy()
-        if not df_p.empty:
-            df_p['timestamp'] = pd.to_datetime(df_p['timestamp'])
-            fig = go.Figure(go.Scatter(x=df_p['timestamp'], y=df_p['energylog'], fill='tozeroy', line=dict(color='#F472B6', width=3)))
-            fig.update_layout(height=280, margin=dict(l=0,r=0,t=10,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"))
-            st.plotly_chart(fig, use_container_width=True)
-
-    for m in st.session_state.clara_logs:
-        st.chat_message(m["role"]).write(m["content"])
-
-    if cp := st.chat_input("Speak with Clara...", key="chat_clara"):
-        st.session_state.clara_logs.append({"role": "user", "content": cp})
-        save_chat("Clara", "user", cp)
-        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara."}]+st.session_state.clara_logs[-3:]).choices[0].message.content
-        st.session_state.clara_logs.append({"role": "assistant", "content": res})
-        save_chat("Clara", "assistant", res)
-        st.rerun()import streamlit as st
-import pandas as pd
-from groq import Groq
-from streamlit_gsheets import GSheetsConnection
-from datetime import datetime
-import plotly.graph_objects as go
-
 # --- 1. CONFIGURATION & PROFESSIONAL STYLING ---
 st.set_page_config(page_title="Health Bridge", layout="wide", initial_sidebar_state="collapsed")
 
@@ -193,7 +56,8 @@ def get_data(worksheet_name):
         df = conn.read(worksheet=worksheet_name, ttl=0)
         df.columns = [str(c).strip().lower() for c in df.columns]
         return df
-    except: return pd.DataFrame()
+    except:
+        return pd.DataFrame()
 
 def save_chat(agent, role, content):
     new_entry = pd.DataFrame([{
@@ -209,58 +73,60 @@ if not st.session_state.auth["logged_in"]:
     t1, t2 = st.tabs(["🔐 Login", "📝 Sign Up"])
     
     with t1:
-        u = st.text_input("Member ID", key="login_u").strip().lower()
-        p = st.text_input("Password", type="password", key="login_p")
-        if st.button("Enter Portal", key="login_btn"):
-            df = get_data("Users")
-            if not df.empty:
-                m = df[(df['memberid'].astype(str).str.lower() == u) & (df['password'].astype(str) == p)]
-                if not m.empty:
-                    st.session_state.auth.update({"logged_in": True, "mid": u, "role": str(m.iloc[0]['role']).lower()})
+        u = st.text_input("Member ID", key="l_u").strip().lower()
+        p = st.text_input("Password", type="password", key="l_p")
+        if st.button("Enter Portal", key="l_b"):
+            df_users = get_data("Users")
+            if not df_users.empty:
+                match = df_users[(df_users['memberid'].astype(str).str.lower() == u) & (df_users['password'].astype(str) == p)]
+                if not match.empty:
+                    st.session_state.auth.update({"logged_in": True, "mid": u, "role": str(match.iloc[0]['role']).lower()})
                     st.rerun()
-                else: st.error("Access Denied: Check ID/Password")
+                else:
+                    st.error("Access Denied: Check ID/Password")
 
     with t2:
-        mid_new = st.text_input("Choose Member ID", key="reg_u").strip().lower()
-        p_new = st.text_input("Set Password", type="password", key="reg_p")
-        if st.button("Create Account", key="reg_btn"):
-            df = get_data("Users")
-            if not df.empty and mid_new in df['memberid'].astype(str).str.lower().values:
+        mid_new = st.text_input("Choose Member ID", key="r_u").strip().lower()
+        p_new = st.text_input("Set Password", type="password", key="r_p")
+        if st.button("Create Account", key="r_b"):
+            df_users = get_data("Users")
+            if not df_users.empty and mid_new in df_users['memberid'].astype(str).str.lower().values:
                 st.error("This ID is already registered.")
             else:
                 new_user = pd.DataFrame([{"memberid": mid_new, "password": p_new, "role": "user"}])
-                conn.update(worksheet="Users", data=pd.concat([df, new_user], ignore_index=True))
+                conn.update(worksheet="Users", data=pd.concat([df_users, new_user], ignore_index=True))
                 st.success("Account Ready! Please Login.")
     st.stop()
 
 # --- 4. MAIN NAVIGATION ---
 nav_tabs = ["🏠 Cooper's Corner", "🛋️ Clara's Couch", "🎮 Games"]
-if st.session_state.auth['role'] == "admin": nav_tabs.append("🛡️ Admin")
+if st.session_state.auth['role'] == "admin":
+    nav_tabs.append("🛡️ Admin")
 tabs = st.tabs(nav_tabs)
 
-# --- 5. COOPER'S CORNER (ENERGY SYNC + CHAT) ---
+# --- 5. COOPER'S CORNER ---
 with tabs[0]:
     st.markdown("""<div class="glass-card"><div class="avatar-circle" style="background:linear-gradient(135deg,#0ea5e9,#6366f1);">🤖</div><h2 style="text-align:center;margin:0;">Cooper's Corner</h2></div>""", unsafe_allow_html=True)
     
     with st.expander("⚡ Sync Daily Energy Status", expanded=True):
-        ev = st.select_slider("Current Level (1-11)", options=list(range(1,12)), value=6, key="energy_val")
-        if st.button("💾 Log to Cloud", key="sync_btn"):
+        ev = st.select_slider("Current Level (1-11)", options=list(range(1,12)), value=6, key="e_val")
+        if st.button("💾 Log to Cloud", key="s_b"):
             new_row = pd.DataFrame([{"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), "memberid": st.session_state.auth['mid'], "energylog": ev}])
             conn.update(worksheet="Sheet1", data=pd.concat([get_data("Sheet1"), new_row], ignore_index=True))
-            st.toast("Data Synced to Sheets!")
+            st.toast("Data Synced!")
 
     for msg in st.session_state.cooper_logs:
         st.chat_message(msg["role"]).write(msg["content"])
     
-    if p := st.chat_input("Talk to Cooper...", key="coop_input"):
-        st.session_state.cooper_logs.append({"role": "user", "content": p})
-        save_chat("Cooper", "user", p)
+    if prompt_coop := st.chat_input("Talk to Cooper...", key="c_in"):
+        st.session_state.cooper_logs.append({"role": "user", "content": prompt_coop})
+        save_chat("Cooper", "user", prompt_coop)
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Cooper."}]+st.session_state.cooper_logs[-3:]).choices[0].message.content
         st.session_state.cooper_logs.append({"role": "assistant", "content": res})
         save_chat("Cooper", "assistant", res)
         st.rerun()
 
-# --- 6. CLARA'S COUCH (ANALYTICS + CHAT) ---
+# --- 6. CLARA'S COUCH ---
 with tabs[1]:
     st.markdown("""<div class="glass-card"><div class="avatar-circle" style="background:linear-gradient(135deg,#f472b6,#e11d48);">🧘‍♀️</div><h2 style="text-align:center;margin:0;">Clara's Couch</h2></div>""", unsafe_allow_html=True)
     
@@ -276,19 +142,19 @@ with tabs[1]:
     for msg in st.session_state.clara_logs:
         st.chat_message(msg["role"]).write(msg["content"])
 
-    if cp := st.chat_input("Analyze with Clara...", key="clara_input"):
-        st.session_state.clara_logs.append({"role": "user", "content": cp})
-        save_chat("Clara", "user", cp)
+    if prompt_clara := st.chat_input("Analyze with Clara...", key="cl_in"):
+        st.session_state.clara_logs.append({"role": "user", "content": prompt_clara})
+        save_chat("Clara", "user", prompt_clara)
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"system","content":"You are Clara."}]+st.session_state.clara_logs[-3:]).choices[0].message.content
         st.session_state.clara_logs.append({"role": "assistant", "content": res})
         save_chat("Clara", "assistant", res)
         st.rerun()
 
-# --- 7. GAMES (HYBRID: SWIPE + KEYBOARD) ---
+# --- 7. GAMES ---
 with tabs[2]:
-    game_choice = st.radio("Activity", ["Snake", "2048"], horizontal=True, key="game_sel")
+    g_choice = st.radio("Activity", ["Snake", "2048"], horizontal=True, key="g_sel")
     
-    if game_choice == "Snake":
+    if g_choice == "Snake":
         S_HTML = """
         <div class="game-box" style="background:#1E293B; border-radius:20px; padding:20px;">
             <canvas id="sc" width="300" height="300" style="background:#0F172A; border:2px solid #38BDF8; border-radius:10px;"></canvas>
@@ -320,7 +186,7 @@ with tabs[2]:
         </script>"""
         st.components.v1.html(S_HTML, height=450)
     else:
-        T2k_HTML = """
+        T_HTML = """
         <div id="g2k_box" class="game-box" style="background:#1E293B; border-radius:20px; padding:20px;">
             <div id="grid" style="display:grid; grid-template-columns:repeat(4,65px); gap:8px; background:#0F172A; padding:10px; border-radius:10px;"></div>
         </div>
@@ -342,18 +208,20 @@ with tabs[2]:
             function mv(s,st,sd){ for(let i=0;i<4;i++){ let l=[]; for(let j=0;j<4;j++) l.push(board[s+i*sd+j*st]); let f=l.filter(v=>v); for(let j=0;j<f.length-1;j++) if(f[j]==f[j+1]){ f[j]*=2; f.splice(j+1,1); } while(f.length<4) f.push(0); for(let j=0;j<4;j++) board[s+i*sd+j*st]=f[j]; } }
             add(); add(); ren();
         </script>"""
-        st.components.v1.html(T2k_HTML, height=450)
+        st.components.v1.html(T_HTML, height=450)
 
-# --- 8. ADMIN PORTAL (FILTER + SEARCH) ---
+# --- 8. ADMIN PORTAL ---
 if st.session_state.auth['role'] == "admin":
     with tabs[3]:
         st.subheader("🛡️ Global Activity Monitor")
         logs_df = get_data("ChatLogs")
         if not logs_df.empty:
             c1, c2 = st.columns(2)
-            with c1: u_f = st.multiselect("Users", options=logs_df['memberid'].unique(), key="admin_u_f")
-            with c2: a_f = st.multiselect("Agents", options=logs_df['agent'].unique(), key="admin_a_f")
-            kw = st.text_input("🔍 Keyword Search", key="admin_kw")
+            with c1: 
+                u_f = st.multiselect("Users", options=logs_df['memberid'].unique(), key="ad_u")
+            with c2: 
+                a_f = st.multiselect("Agents", options=logs_df['agent'].unique(), key="ad_a")
+            kw = st.text_input("🔍 Keyword Search", key="ad_kw")
             
             final_df = logs_df.copy()
             if u_f: final_df = final_df[final_df['memberid'].isin(u_f)]
@@ -361,29 +229,9 @@ if st.session_state.auth['role'] == "admin":
             if kw: final_df = final_df[final_df['content'].astype(str).str.contains(kw, case=False)]
             
             st.dataframe(final_df, use_container_width=True, hide_index=True)
-            st.download_button("Export Results", final_df.to_csv(index=False), "admin_logs.csv", key="admin_dl")
+            st.download_button("Export CSV", final_df.to_csv(index=False), "admin_logs.csv", key="ad_dl")
 
-# --- LOGOUT ---
-if st.sidebar.button("Logout", key="logout_final"):
+# --- 9. LOGOUT ---
+if st.sidebar.button("Logout", key="logout_s"):
     st.session_state.clear()
     st.rerun()
-
-# --- 7. GAMES --- (Existing Hybrid Logic remains here)
-
-# --- 8. ADMIN --- (Filter + Search Logic integrated)
-if st.session_state.auth['role'] == "admin":
-    with tabs[3]:
-        st.subheader("🛡️ Admin Explorer")
-        logs_df = get_data("ChatLogs")
-        if not logs_df.empty:
-            col1, col2 = st.columns(2)
-            with col1: u_sel = st.multiselect("Users", options=logs_df['memberid'].unique(), key="admin_u")
-            with col2: a_sel = st.multiselect("Agents", options=logs_df['agent'].unique(), key="admin_a")
-            q = st.text_input("🔍 Search Logs", key="admin_search")
-            
-            f_df = logs_df.copy()
-            if u_sel: f_df = f_df[f_df['memberid'].isin(u_sel)]
-            if a_sel: f_df = f_df[f_df['agent'].isin(a_sel)]
-            if q: f_df = f_df[f_df['content'].astype(str).str.contains(q, case=False)]
-            
-            st.dataframe(f_df, use_container_width=True)
