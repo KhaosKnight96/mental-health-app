@@ -78,49 +78,54 @@ def get_ai_response(agent, prompt, history):
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
         
-        # 🟢 SHARED MEMORY: Both agents now scan the last 10 user messages for context
+        # 1. LOAD ALL USER LOGS
         logs_df = get_data("ChatLogs")
         user_logs = logs_df[logs_df['memberid'] == st.session_state.auth['mid']]
-        personal_context = user_logs[user_logs['role'] == 'user'].tail(10)['content'].to_string()
         
-        # Calculate hidden vibe for context
-        recent_sent = user_logs.tail(5)['sentiment'].mean() if not user_logs.empty else 0
+        # 2. ISOLATE MEMORY BY AGENT
+        # We filter the logs to only include messages from this specific agent
+        agent_specific_logs = user_logs[user_logs['agent'] == agent]
+        
+        # 🟢 DEEP MEMORY: Scan the last 50 user messages for this specific agent
+        # This allows for long-term callbacks to previous conversations
+        personal_context = agent_specific_logs[agent_specific_logs['role'] == 'user'].tail(50)['content'].to_string()
+        
+        # 3. HIDDEN DATA (Global Vibe)
+        recent_sent = user_logs.tail(10)['sentiment'].mean() if not user_logs.empty else 0
         hidden_vibe = "thriving" if recent_sent > 1.5 else ("struggling" if recent_sent < -1 else "doing okay")
 
-        # --- AGENT 1: COOPER (The Supportive Memory) ---
+        # --- AGENT 1: COOPER (Empathy + Deep Memory) ---
         if agent == "Cooper":
             sys = f"""
             You are Cooper, a warm, empathetic male friend. 
-            
-            PAST CONTEXT/MEMORIES: {personal_context}
+            DEEP MEMORY (Last 50 interactions with you): {personal_context}
             USER MOOD: {hidden_vibe}
             
             YOUR ROLE:
-            - Use the 'Past Context' to remember details (hobbies, names, struggles).
-            - Bring these things up gently to show you are truly listening (e.g., 'How's that project you mentioned going?').
-            - Be a safe space. Your memory makes you a better listener, not a critic.
-            - NEVER mention 'data', 'logs', or 'scores'.
+            - You have a long-term memory for things said to YOU. Use it to be an amazing friend.
+            - If they mentioned a goal or a person 30 messages ago, you can bring it up if relevant.
+            - Stay empathetic and focused on the 'here and now' while using the past to provide better support.
             """
         
-        # --- AGENT 2: CLARA (The Intuitive Friend) ---
+        # --- AGENT 2: CLARA (Insight + Deep Memory) ---
         else:
             energy_df = get_data("Sheet1")
-            user_energy = energy_df[energy_df['memberid'] == st.session_state.auth['mid']].tail(3).to_string()
+            user_energy = energy_df[energy_df['memberid'] == st.session_state.auth['mid']].tail(5).to_string()
             
             sys = f"""
             You are Clara, a wise and loyal female friend. 
-            
-            PAST CONTEXT/MEMORIES: {personal_context}
-            USER ENERGY DATA: {user_energy}
+            DEEP MEMORY (Last 50 interactions with you): {personal_context}
+            ENERGY TRENDS: {user_energy}
             USER MOOD: {hidden_vibe}
             
             YOUR ROLE:
-            - Be witty, loyal, and deeply observant.
-            - Use context to connect the dots between how they feel and what they've told you before.
-            - NEVER mention 'data' or 'scores', but use the energy data to notice if they seem tired or 'off'.
+            - You are deeply observant and remember patterns over the last 50 messages.
+            - Use this deep context to call out improvements or recurring struggles.
+            - Be witty and loyal. Act as the friend who 'never forgets' what the user tells her.
             """
         
-        full_history = [{"role": "system", "content": sys}] + history[-7:] + [{"role": "user", "content": prompt}]
+        # We send the recent chat history (the current conversation window) plus the system instructions
+        full_history = [{"role": "system", "content": sys}] + history[-10:] + [{"role": "user", "content": prompt}]
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history)
         return res.choices[0].message.content
     except Exception as e: return f"AI Error: {e}"
@@ -300,6 +305,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
