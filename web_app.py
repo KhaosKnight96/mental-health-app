@@ -114,7 +114,7 @@ def get_ai_response(agent, prompt, history):
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history)
         return res.choices[0].message.content
     except Exception as e: return f"AI Error: {e}"
-# --- 3. LOGIN GATE ---
+# --- 3. LOGIN GATE (OPTIMIZED LOAD) ---
 if not st.session_state.auth["in"]:
     st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge</h1>", unsafe_allow_html=True)
     with st.container(border=True):
@@ -125,15 +125,23 @@ if not st.session_state.auth["in"]:
             m = users[(users['memberid'].astype(str).str.lower() == u) & (users['password'].astype(str) == p)]
             if not m.empty:
                 st.session_state.auth.update({"in": True, "mid": u, "role": str(m.iloc[0]['role']).lower()})
+                
+                # Load persistent history (Limited to last 50 for performance)
                 all_logs = get_data("ChatLogs")
                 if not all_logs.empty:
+                    # Filter for current user and sort by time
                     user_logs = all_logs[all_logs['memberid'].astype(str).str.lower() == u]
-                    st.session_state.cooper_logs = [{"role": r.role, "content": r.content} for _,r in user_logs[user_logs.agent == "Cooper"].iterrows()]
-                    st.session_state.clara_logs = [{"role": r.role, "content": r.content} for _,r in user_logs[user_logs.agent == "Clara"].iterrows()]
+                    user_logs = user_logs.sort_values('timestamp')
+                    
+                    # 🟢 PERFORMANCE CAP: Only load the last 50 into the session
+                    # This ensures the chat is fast and scrolls to bottom correctly
+                    recent_history = user_logs.tail(50)
+                    
+                    st.session_state.cooper_logs = [{"role": r.role, "content": r.content} for _,r in recent_history[recent_history.agent == "Cooper"].iterrows()]
+                    st.session_state.clara_logs = [{"role": r.role, "content": r.content} for _,r in recent_history[recent_history.agent == "Clara"].iterrows()]
                 st.rerun()
             else: st.error("Invalid Credentials")
     st.stop()
-
 # --- 4. NAVIGATION (WITH AUTO-SCROLL) ---
 tabs = st.tabs(["🏠 Cooper", "🛋️ Clara", "🎮 Games", "🛡️ Admin", "🚪 Logout"])
 
@@ -282,6 +290,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
