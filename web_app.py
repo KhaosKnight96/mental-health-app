@@ -252,74 +252,54 @@ with tabs[2]:
                 });
             } f_init();
         </script>""", height=450)
-# --- 6. ADMIN (LOGS + SENTIMENT TRACKER) ---
+# --- 6. ADMIN (AI SENTIMENT & LOGS) ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        admin_sub_tabs = st.tabs(["📋 Chat Explorer", "📊 Sentiment Tracker", "🏆 Activity"])
+        admin_sub_tabs = st.tabs(["📋 Chat Explorer", "🧠 AI Sentiment Pulse", "🏆 Activity"])
         
         logs_df = get_data("ChatLogs")
         if not logs_df.empty:
-            # Shared Timestamp Fix
             logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'], errors='coerce', format='mixed')
-            
+
             # --- TAB 1: LOGS ---
             with admin_sub_tabs[0]:
-                search_q = st.text_input("🔍 Search Messages")
-                c1, c2 = st.columns(2)
-                u_sel = c1.selectbox("User", ["All"] + list(logs_df['memberid'].unique()))
-                a_sel = c2.selectbox("Agent", ["All"] + list(logs_df['agent'].unique()))
-                
-                f_df = logs_df.copy()
-                if search_q: f_df = f_df[f_df['content'].str.contains(search_q, case=False, na=False)]
-                if u_sel != "All": f_df = f_df[f_df['memberid'] == u_sel]
-                if a_sel != "All": f_df = f_df[f_df['agent'] == a_sel]
-                
-                st.dataframe(f_df.sort_values('timestamp', ascending=False), use_container_width=True)
+                search_q = st.text_input("🔍 Search Logs", key="admin_search")
+                st.dataframe(logs_df.sort_values('timestamp', ascending=False), use_container_width=True)
 
-            # --- TAB 2: SENTIMENT TRACKER ---
+            # --- TAB 2: AI SENTIMENT PULSE ---
             with admin_sub_tabs[1]:
-                st.subheader("🧠 Emotional Pulse")
+                st.subheader("AI-Driven Emotional Analysis")
                 
-                # Basic Sentiment Analysis Logic
-                pos_words = ['happy', 'good', 'great', 'better', 'energy', 'thanks', 'love', 'excited', 'improving']
-                neg_words = ['tired', 'sad', 'bad', 'hard', 'stress', 'burnt', 'pain', 'struggling', 'exhausted']
-
-                def calc_sentiment(text):
-                    text = str(text).lower()
-                    score = 0
-                    for w in pos_words: 
-                        if w in text: score += 1
-                    for w in neg_words: 
-                        if w in text: score -= 1
-                    return score
-
-                # Process user messages only (to see how members are feeling)
-                user_msgs = logs_df[logs_df['role'] == 'user'].copy()
-                user_msgs['sentiment'] = user_msgs['content'].apply(calc_sentiment)
+                if st.button("🔄 Run AI Sentiment Analysis"):
+                    with st.spinner("Clara is analyzing emotional patterns..."):
+                        # Get only the last 20 user messages for analysis
+                        user_messages = logs_df[logs_df['role'] == 'user'].tail(20)
+                        
+                        client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
+                        
+                        # Prepare the prompt for the AI Analyst
+                        analysis_prompt = f"Analyze the following chat logs and provide a sentiment score for each user. Score from -5 (distressed/angry) to +5 (happy/thriving). Format: 'UserID: Score'. Logs: {user_messages[['memberid', 'content']].to_string()}"
+                        
+                        res = client.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[{"role": "system", "content": "You are a clinical sentiment analyst. Output only the scores per user."},
+                                      {"role": "user", "content": analysis_prompt}]
+                        )
+                        
+                        st.markdown("### Clara's Latest Insights:")
+                        st.write(res.choices[0].message.content)
+                        
+                        # Note: In a production app, you would parse this text back into a chart.
+                        # For now, this provides the raw AI reasoning.
                 
-                # Group by User
-                sentiment_rank = user_msgs.groupby('memberid')['sentiment'].mean().reset_index()
-                sentiment_rank.columns = ['Member ID', 'Average Mood Score']
-                
-                # Visual Chart
-                fig_sent = go.Figure(go.Bar(
-                    x=sentiment_rank['Member ID'],
-                    y=sentiment_rank['Average Mood Score'],
-                    marker_color=sentiment_rank['Average Mood Score'].apply(lambda x: '#22c55e' if x >= 0 else '#ef4444')
-                ))
-                fig_sent.update_layout(title="User Sentiment (Green = Positive, Red = Struggling)", template="plotly_dark")
-                st.plotly_chart(fig_sent, use_container_width=True)
-                
-                st.info("💡 **Insight:** A negative score suggests the user might be experiencing stress or burnout. Reach out via Cooper for support.")
+                st.info("The AI looks for context like burnout, anxiety, or positive growth that keyword filters miss.")
 
             # --- TAB 3: ACTIVITY LEADERBOARD ---
             with admin_sub_tabs[2]:
-                st.subheader("Community Engagement Rankings")
+                st.subheader("Community Engagement")
                 rank_df = logs_df.groupby('memberid').size().reset_index(name='Total Interactions')
-                rank_df = rank_df.sort_values(by='Total Interactions', ascending=False)
-                st.table(rank_df)
-        else:
-            st.info("Waiting for data to populate logs...")
+                st.plotly_chart(go.Figure(go.Bar(x=rank_df['memberid'], y=rank_df['Total Interactions'], marker_color='#38BDF8')), use_container_width=True)
+
     else:
         st.warning("Admin access required.")
 # --- 7. LOGOUT ---
@@ -327,6 +307,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
