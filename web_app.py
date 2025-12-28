@@ -198,27 +198,87 @@ with tabs[2]:
             } init();
         </script>""", height=400)
 
-# --- 6. ADMIN ---
+# --- 6. ADMIN (REFINED FILTERING) ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        st.subheader("🛡️ Global Log Explorer")
+        st.subheader("🛡️ Admin Control Center")
+        
+        # Load Data
         logs_df = get_data("ChatLogs")
+        
         if not logs_df.empty:
-            search = st.text_input("🔍 Search Messages...")
-            col1, col2 = st.columns(2)
-            u_f = col1.multiselect("Filter User", logs_df['memberid'].unique())
-            a_f = col2.multiselect("Filter Agent", logs_df['agent'].unique())
-            
-            f_df = logs_df.copy()
-            if search: f_df = f_df[f_df['content'].str.contains(search, case=False)]
-            if u_f: f_df = f_df[f_df['memberid'].isin(u_f)]
-            if a_f: f_df = f_df[f_df['agent'].isin(a_f)]
-            
-            st.dataframe(f_df, use_container_width=True, hide_index=True)
-    else: st.warning("Access Restricted to Admin")
+            # Persistent search bar at the top
+            search_query = st.text_input("🔍 Search conversation content...", placeholder="Type to filter logs...")
 
+            # Filter Controls Row
+            col1, col2, col3, col4 = st.columns([1.5, 1, 1, 1])
+            
+            with col1:
+                # "Most Recent" toggle - sorts by timestamp
+                sort_order = st.selectbox("📅 Sort Order", ["Most Recent", "Oldest First"])
+            
+            with col2:
+                # Filter by User
+                user_list = ["All Users"] + sorted(logs_df['memberid'].unique().tolist())
+                selected_user = st.selectbox("👤 Filter by User", user_list)
+            
+            with col3:
+                # Filter by Agent
+                agent_list = ["All Agents"] + sorted(logs_df['agent'].unique().tolist())
+                selected_agent = st.selectbox("🤖 Filter by Agent", agent_list)
+            
+            with col4:
+                # Extra Filter: By Role (User vs Assistant)
+                role_list = ["All Roles", "user", "assistant"]
+                selected_role = st.selectbox("💬 Filter by Role", role_list)
+
+            # --- Data Processing Logic ---
+            f_df = logs_df.copy()
+
+            # 1. Search Filter
+            if search_query:
+                f_df = f_df[f_df['content'].str.contains(search_query, case=False, na=False)]
+            
+            # 2. User Filter
+            if selected_user != "All Users":
+                f_df = f_df[f_df['memberid'] == selected_user]
+            
+            # 3. Agent Filter
+            if selected_agent != "All Agents":
+                f_df = f_df[f_df['agent'] == selected_agent]
+            
+            # 4. Role Filter
+            if selected_role != "All Roles":
+                f_df = f_df[f_df['role'] == selected_role]
+
+            # 5. Sorting Logic
+            f_df['timestamp'] = pd.to_datetime(f_df['timestamp']) # Ensure datetime format
+            if sort_order == "Most Recent":
+                f_df = f_df.sort_values(by='timestamp', ascending=False)
+            else:
+                f_df = f_df.sort_values(by='timestamp', ascending=True)
+
+            # Display Results
+            st.write(f"Showing **{len(f_df)}** entries:")
+            st.dataframe(
+                f_df, 
+                use_container_width=True, 
+                hide_index=True,
+                column_config={
+                    "timestamp": st.column_config.DatetimeColumn("Time", format="D MMM, h:mm a"),
+                    "content": st.column_config.TextColumn("Message Content", width="large")
+                }
+            )
+            
+            # Download Button for Admin
+            csv = f_df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 Export Filtered Logs", data=csv, file_name="health_bridge_logs.csv", mime="text/csv")
+            
+    else:
+        st.warning("⛔ Access Denied. Admin privileges required.")
 # --- 7. LOGOUT ---
 with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
