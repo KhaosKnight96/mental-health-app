@@ -198,7 +198,7 @@ with tabs[2]:
             } init();
         </script>""", height=400)
 
-# --- 6. ADMIN (REFINED FILTERING) ---
+# --- 6. ADMIN (FIXED FOR DATETIME ERRORS) ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
         st.subheader("🛡️ Admin Control Center")
@@ -207,33 +207,36 @@ with tabs[3]:
         logs_df = get_data("ChatLogs")
         
         if not logs_df.empty:
-            # Persistent search bar at the top
+            # Persistent search bar
             search_query = st.text_input("🔍 Search conversation content...", placeholder="Type to filter logs...")
 
             # Filter Controls Row
             col1, col2, col3, col4 = st.columns([1.5, 1, 1, 1])
             
             with col1:
-                # "Most Recent" toggle - sorts by timestamp
-                sort_order = st.selectbox("📅 Sort Order", ["Most Recent", "Oldest First"])
+                # "Filter By" Sort Order
+                sort_order = st.selectbox("📅 Sort By", ["Most Recent", "Oldest First"])
             
             with col2:
                 # Filter by User
                 user_list = ["All Users"] + sorted(logs_df['memberid'].unique().tolist())
-                selected_user = st.selectbox("👤 Filter by User", user_list)
+                selected_user = st.selectbox("👤 User", user_list)
             
             with col3:
                 # Filter by Agent
                 agent_list = ["All Agents"] + sorted(logs_df['agent'].unique().tolist())
-                selected_agent = st.selectbox("🤖 Filter by Agent", agent_list)
+                selected_agent = st.selectbox("🤖 Agent", agent_list)
             
             with col4:
-                # Extra Filter: By Role (User vs Assistant)
+                # Extra Filter: By Role
                 role_list = ["All Roles", "user", "assistant"]
-                selected_role = st.selectbox("💬 Filter by Role", role_list)
+                selected_role = st.selectbox("💬 Role", role_list)
 
             # --- Data Processing Logic ---
             f_df = logs_df.copy()
+
+            # THE FIX: Handle mixed date formats (seconds vs no seconds)
+            f_df['timestamp'] = pd.to_datetime(f_df['timestamp'], errors='coerce', format='mixed')
 
             # 1. Search Filter
             if search_query:
@@ -252,7 +255,6 @@ with tabs[3]:
                 f_df = f_df[f_df['role'] == selected_role]
 
             # 5. Sorting Logic
-            f_df['timestamp'] = pd.to_datetime(f_df['timestamp']) # Ensure datetime format
             if sort_order == "Most Recent":
                 f_df = f_df.sort_values(by='timestamp', ascending=False)
             else:
@@ -270,9 +272,9 @@ with tabs[3]:
                 }
             )
             
-            # Download Button for Admin
+            # Download Button
             csv = f_df.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Export Filtered Logs", data=csv, file_name="health_bridge_logs.csv", mime="text/csv")
+            st.download_button("📥 Export CSV", data=csv, file_name="health_bridge_logs.csv", mime="text/csv")
             
     else:
         st.warning("⛔ Access Denied. Admin privileges required.")
@@ -281,4 +283,5 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
