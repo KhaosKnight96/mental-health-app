@@ -1,68 +1,50 @@
 import streamlit as st
-import pandas as pd
 from groq import Groq
-from streamlit_gsheets import GSheetsConnection
-from datetime import datetime
 
-# --- 1. CONFIG & KEY ---
-st.set_page_config(page_title="Health Bridge", layout="wide")
-MY_KEY = "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"
+# --- 1. THE SCRUBBED KEY ---
+# I am using a manual replace to strip any possible invisible characters
+RAW_KEY = "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"
+CLEAN_KEY = "".join(RAW_KEY.split()) # Removes ALL types of whitespace/newlines
 
-# --- 2. SESSION STATE ---
-if "auth" not in st.session_state: st.session_state.auth = {"in": False, "mid": "Guest"}
-if "cooper_chats" not in st.session_state: st.session_state.cooper_chats = []
+# --- 2. INITIALIZE CLIENT ---
+try:
+    client = Groq(api_key=CLEAN_KEY)
+except Exception as e:
+    st.error(f"Initialization Error: {e}")
 
-# --- 3. THE FAIL-SAFE CHAT FUNCTION ---
-def chat_with_ai(prompt):
+st.title("🛡️ Connection Recovery Mode")
+
+# --- 3. THE TESTER ---
+if st.button("Final Connection Attempt"):
     try:
-        # We initialize inside the function to ensure a fresh connection every time
-        client = Groq(api_key=MY_KEY.strip())
-        
-        # We use a shorter history to prevent "Token Limit" errors
-        context = [{"role": "system", "content": "You are Cooper, a helpful health assistant."}]
-        context.extend(st.session_state.cooper_chats[-3:])
-        context.append({"role": "user", "content": prompt})
-
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=context,
-            timeout=10.0 # Don't let it hang forever
+        # We try the most basic model (8B) to ensure it's not a tier-access issue
+        chat_completion = client.chat.completions.create(
+            messages=[{"role": "user", "content": "Hi"}],
+            model="llama3-8b-8192", 
         )
-        return completion.choices[0].message.content
+        st.success("✅ IT WORKS! Response: " + chat_completion.choices[0].message.content)
     except Exception as e:
-        return f"🚨 CONNECTION ERROR: {str(e)}"
+        st.error(f"❌ STILL INVALID: {e}")
+        st.info("If this fails, please go to https://console.groq.com/keys, DELETE your current key, and create a BRAND NEW one. Then paste that new key here.")
 
-# --- 4. UI ---
-st.title("🤖 Cooper's Corner")
+# --- 4. CHAT INTERFACE (The Master Build Logic) ---
+if "msgs" not in st.session_state: st.session_state.msgs = []
 
-# --- 5. CONNECTION DIAGNOSTIC (Check this if it fails) ---
-with st.expander("🛠️ Debug Connection"):
-    if st.button("Test Groq Connection"):
-        test_client = Groq(api_key=MY_KEY.strip())
-        try:
-            test_client.models.list()
-            st.success("Connection Successful! Your key is active.")
-        except Exception as e:
-            st.error(f"Connection Failed: {e}")
+for m in st.session_state.msgs:
+    with st.chat_message(m["role"]): st.markdown(m["content"])
 
-# --- 6. CHAT INTERFACE ---
-# Display messages from session state
-for msg in st.session_state.cooper_chats:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# Handle Input
-if prompt := st.chat_input("Say something to Cooper..."):
-    # 1. Show user message immediately
-    st.session_state.cooper_chats.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    # 2. Generate and show AI message immediately
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            response = chat_with_ai(prompt)
-            st.markdown(response)
+if prompt := st.chat_input("Testing..."):
+    st.session_state.msgs.append({"role": "user", "content": prompt})
+    with st.chat_message("user"): st.markdown(prompt)
     
-    # 3. Save to history (This happens AFTER display so it can't be "interrupted")
-    st.session_state.cooper_chats.append({"role": "assistant", "content": response})
+    try:
+        # Using llama3-8b-8192 for maximum compatibility
+        res = client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama3-8b-8192",
+        ).choices[0].message.content
+        
+        st.session_state.msgs.append({"role": "assistant", "content": res})
+        with st.chat_message("assistant"): st.markdown(res)
+    except Exception as e:
+        st.error(f"Chat failed: {e}")
