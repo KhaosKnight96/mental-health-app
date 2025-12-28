@@ -122,30 +122,90 @@ with tabs[2]:
     
     if game_mode == "Snake":
         st.components.v1.html(f"<script>{JS_LIBS}</script>" + """
-        <div id="p" style="text-align:center; background:#1E293B; padding:20px; border-radius:20px; touch-action:none;">
-            <canvas id="s" width="300" height="300" style="background:#0F172A; border:2px solid #38BDF8;"></canvas>
-            <h2 id="sc" style="color:#38BDF8;">Score: 0</h2>
-            <div id="go" style="display:none; color:#F87171;"><h1>GAME OVER</h1><button onclick="rst()">Reset</button></div>
-        </div>
-        <script>
-            const c=document.getElementById("s"),x=c.getContext("2d"),b=15;
-            let sn,f,d,g,s;
-            function rst(){ sn=[{x:150,y:150}]; f={x:150,y:75}; d="R"; s=0; document.getElementById("go").style.display="none"; clearInterval(g); g=setInterval(upd,120); }
-            window.onkeydown=e=>{ if(e.key=="ArrowLeft"&&d!="R")d="L";if(e.key=="ArrowUp"&&d!="D")d="U";if(e.key=="ArrowRight"&&d!="L")d="R";if(e.key=="ArrowDown"&&d!="U")d="D"};
-            let tx,ty; c.ontouchstart=e=>{tx=e.touches[0].clientX; ty=e.touches[0].clientY;};
-            c.ontouchend=e=>{let dx=e.changedTouches[0].clientX-tx, dy=e.changedTouches[0].clientY-ty;
-            if(Math.abs(dx)>Math.abs(dy)){if(dx>0&&d!="L")d="R";else if(dx<0&&d!="R")d="L";}
-            else{if(dy>0&&d!="U")d="D";else if(dy<0&&d!="D")d="U";}};
-            function upd(){
-                x.fillStyle="#0F172A"; x.fillRect(0,0,300,300); x.fillStyle="#F87171"; x.fillRect(f.x,f.y,b,b);
-                sn.forEach((p,i)=>{x.fillStyle=i==0?"#38BDF8":"#334155"; x.fillRect(p.x,p.y,b,b);});
-                let h={...sn[0]}; if(d=="L")h.x-=b; if(d=="U")h.y-=b; if(d=="R")h.x+=b; if(d=="D")h.y+=b;
-                if(h.x==f.x&&h.y==f.y){ s++; snd(600,"sine",0.1); f={x:Math.floor(Math.random()*19)*b,y:Math.floor(Math.random()*19)*b}; } else if(d)sn.pop();
-                if(h.x<0||h.x>=300||h.y<0||h.y>=300||sn.some(z=>z.x==h.x&&z.y==h.y)){ clearInterval(g); snd(100,"sawtooth",0.5); document.getElementById("go").style.display="block"; }
-                if(d)sn.unshift(h); document.getElementById("sc").innerText="Score: "+s;
-            } rst();
-        </script>""", height=500)
+<div id="p" style="text-align:center; background:#1E293B; padding:20px; border-radius:20px; touch-action:none; position:relative;">
+    <canvas id="s" width="300" height="300" style="background:#0F172A; border:2px solid #38BDF8; border-radius:10px;"></canvas>
+    <h2 id="sc" style="color:#38BDF8; margin:10px 0;">Score: 0</h2>
+    
+    <div id="ui-overlay">
+        <button id="startBtn" onclick="initGame()" style="padding:10px 20px; font-size:18px; background:#38BDF8; border:none; border-radius:8px; color:white; cursor:pointer;">Start Game</button>
+    </div>
+    
+    <div id="go" style="display:none; color:#F87171; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(15,23,42,0.9); padding:20px; border-radius:15px; width:80%;">
+        <h1>GAME OVER</h1>
+        <button onclick="initGame()" style="padding:10px 20px; background:#F87171; border:none; border-radius:8px; color:white;">Try Again</button>
+    </div>
+</div>
 
+<script>
+    const c=document.getElementById("s"), x=c.getContext("2d"), b=15;
+    let sn, f, d, g, s, running = false;
+
+    // KEYBOARD: Prevent Scroll
+    window.onkeydown = e => {
+        if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) {
+            e.preventDefault(); // STOPS SCREEN SCROLL
+        }
+        if(!running) return;
+        if(e.key=="ArrowLeft"&&d!="R") d="L";
+        if(e.key=="ArrowUp"&&d!="D") d="U";
+        if(e.key=="ArrowRight"&&d!="L") d="R";
+        if(e.key=="ArrowDown"&&d!="U") d="D";
+    };
+
+    // TOUCH: Prevent Scroll
+    let tx, ty;
+    c.ontouchstart = e => { 
+        tx = e.touches[0].clientX; 
+        ty = e.touches[0].clientY; 
+    };
+    c.ontouchmove = e => { e.preventDefault(); }; // STOPS SCROLL ON SWIPE
+    c.ontouchend = e => {
+        if(!running) return;
+        let dx = e.changedTouches[0].clientX - tx, dy = e.changedTouches[0].clientY - ty;
+        if(Math.abs(dx) > Math.abs(dy)){
+            if(dx > 0 && d != "L") d = "R"; else if(dx < 0 && d != "R") d = "L";
+        } else {
+            if(dy > 0 && d != "U") d = "D"; else if(dy < 0 && d != "D") d = "U";
+        }
+    };
+
+    function initGame(){
+        sn = [{x:150,y:150}];
+        f = {x:Math.floor(Math.random()*19)*b, y:Math.floor(Math.random()*19)*b};
+        d = "R"; s = 0;
+        running = true;
+        document.getElementById("go").style.display = "none";
+        document.getElementById("startBtn").style.display = "none";
+        document.getElementById("sc").innerText = "Score: 0";
+        clearInterval(g);
+        g = setInterval(upd, 120);
+    }
+
+    function upd(){
+        if(!running) return;
+        x.fillStyle="#0F172A"; x.fillRect(0,0,300,300);
+        x.fillStyle="#F87171"; x.fillRect(f.x,f.y,b,b);
+        sn.forEach((p,i)=>{ x.fillStyle=i==0?"#38BDF8":"#334155"; x.fillRect(p.x,p.y,b,b); });
+        
+        let h={...sn[0]}; 
+        if(d=="L")h.x-=b; if(d=="U")h.y-=b; if(d=="R")h.x+=b; if(d=="D")h.y+=b;
+        
+        if(h.x==f.x && h.y==f.y){
+            s++; snd(600,"sine",0.1);
+            f={x:Math.floor(Math.random()*19)*b, y:Math.floor(Math.random()*19)*b};
+        } else { sn.pop(); }
+        
+        if(h.x<0||h.x>=300||h.y<0||h.y>=300||sn.some(z=>z.x==h.x&&z.y==h.y)){
+            running = false;
+            clearInterval(g);
+            snd(100,"sawtooth",0.5);
+            document.getElementById("go").style.display = "block";
+        }
+        if(running) sn.unshift(h);
+        document.getElementById("sc").innerText = "Score: " + s;
+    }
+</script>
+""", height=520)
     elif game_mode == "Memory Pattern":
         st.components.v1.html(f"<script>{JS_LIBS}</script>" + """
         <div style="text-align:center; background:#1E293B; padding:20px; border-radius:20px;">
@@ -283,5 +343,6 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
