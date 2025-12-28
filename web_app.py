@@ -290,55 +290,93 @@ with tabs[2]:
 # --- 6. ADMIN (THE BRIDGE & DATA MANAGEMENT) ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        # Ensure these are indented exactly 8 spaces from the margin
-        admin_sub_tabs = st.tabs(["🔍 Search & Filter", "📈 Sentiment Trends", "🏆 Activity", "⚠️ Data Management"])
+        # Sidebar filter for easier navigation
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🎯 Admin Focus")
+        u_sel = st.sidebar.selectbox("Select Member to Inspect", ["All Users"] + sorted(list(get_data("Users")['memberid'].unique())))
+
+        admin_sub_tabs = st.tabs(["🔍 Chat Explorer", "📈 Mood Trends", "🎮 Game Overview", "⚠️ Management"])
         
         logs_df = get_data("ChatLogs")
+        
         if not logs_df.empty:
             logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'], errors='coerce')
-            if 'sentiment' in logs_df.columns:
-                logs_df['sentiment'] = pd.to_numeric(logs_df['sentiment'], errors='coerce').fillna(0)
             
-            # --- TAB 0: SEARCH & FILTER ---
+            # --- TAB 0: CHAT EXPLORER ---
             with admin_sub_tabs[0]:
-                st.subheader("📋 Interaction Explorer")
-                c1, c2, c3 = st.columns([2, 1, 1])
-                search_q = c1.text_input("🔍 Search Messages", key="admin_search_input")
-                u_sel = c2.selectbox("Filter User for All Tabs", ["All Users"] + sorted(list(logs_df['memberid'].unique())))
-                a_sel = c3.selectbox("Filter Agent", ["All"] + list(logs_df['agent'].unique()))
+                st.subheader("📋 Interaction Logs")
+                search_q = st.text_input("🔍 Search message content...", key="admin_search")
                 
                 f_df = logs_df.copy()
-                if search_q: f_df = f_df[f_df['content'].str.contains(search_q, case=False, na=False)]
                 if u_sel != "All Users": f_df = f_df[f_df['memberid'] == u_sel]
-                if a_sel != "All": f_df = f_df[f_df['agent'] == a_sel]
+                if search_q: f_df = f_df[f_df['content'].str.contains(search_q, case=False, na=False)]
                 
                 st.dataframe(f_df.sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
 
-            # --- TAB 1: SENTIMENT TRENDS ---
+            # --- TAB 1: MOOD TRENDS ---
             with admin_sub_tabs[1]:
-                title_suffix = f" for {u_sel}" if u_sel != "All Users" else " (Global)"
-                st.subheader(f"📈 Sentiment Trends{title_suffix}")
+                st.subheader(f"📈 Sentiment Analysis: {u_sel}")
+                sent_df = logs_df[logs_df['role'] == 'user'].copy()
+                if u_sel != "All Users": sent_df = sent_df[sent_df['memberid'] == u_sel]
                 
-                user_msgs = f_df[f_df['role'] == 'user'].copy() # Uses filtered data from Tab 0
-                
-                if not user_msgs.empty:
-                    trend_df = user_msgs.groupby(user_msgs['timestamp'].dt.date)['sentiment'].mean().reset_index()
-                    fig = go.Figure(go.Scatter(
-                        x=trend_df['timestamp'], y=trend_df['sentiment'], 
-                        mode='lines+markers', line=dict(color='#38BDF8', width=3),
-                        marker=dict(size=8, color='#6366F1')
-                    ))
-                    fig.update_layout(template="plotly_dark", yaxis=dict(range=[-5.5, 5.5], title="Mood Score"))
-                    st.plotly_chart(fig, use_container_width=True)
+                if not sent_df.empty:
+                    sent_df['sentiment'] = pd.to_numeric(sent_df['sentiment'], errors='coerce').fillna(0)
+                    daily_mood = sent_df.groupby(sent_df['timestamp'].dt.date)['sentiment'].mean().reset_index()
                     
-                    summary_h = user_msgs.groupby('memberid')['sentiment'].mean().reset_index()
-                    summary_h["Clara's Intuition"] = summary_h['sentiment'].apply(
-                        lambda x: "🌟 'Thriving!'" if x > 1.5 else ("🩹 'Hurting.'" if x < -1 else "⚖️ 'Stable.'")
-                    )
-                    st.table(summary_h[['memberid', 'sentiment', "Clara's Intuition"]])
+                    fig = go.Figure(go.Scatter(x=daily_mood['timestamp'], y=daily_mood['sentiment'], mode='lines+markers', line=dict(color='#38BDF8')))
+                    fig.update_layout(template="plotly_dark", yaxis=dict(range=[-5.5, 5.5], title="Score (-5 to +5)"))
+                    st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info("No user messages found for this selection.")
+                    st.info("No sentiment data found.")
 
+            # --- TAB 2: GAME OVERVIEW (NEW) ---
+            with admin_sub_tabs[2]:
+                st.subheader(f"🎮 Arcade Performance: {u_sel}")
+                
+                # We identify games by the 'agent' column
+                games = ["Snake", "2048", "Memory Pattern", "Flash Match"]
+                g_df = logs_df[logs_df['agent'].isin(games)].copy()
+                
+                if u_sel != "All Users": g_df = g_df[g_df['memberid'] == u_sel]
+                
+                if not g_df.empty:
+                    g_df['score'] = pd.to_numeric(g_df['content'], errors='coerce').fillna(0)
+                    
+                    # Create stats summary
+                    stats = g_df.groupby(['memberid', 'agent']).agg(
+                        High_Score=('score', 'max'),
+                        Total_Plays=('score', 'count')
+                    ).reset_index()
+                    
+                    st.dataframe(stats.sort_values('High_Score', ascending=False), use_container_width=True, hide_index=True)
+                    
+                    # Visual Chart
+                    fig_g = go.Figure()
+                    for game in games:
+                        g_data = stats[stats['agent'] == game]
+                        if not g_data.empty:
+                            fig_g.add_trace(go.Bar(x=g_data['memberid'], y=g_data['High_Score'], name=game))
+                    
+                    fig_g.update_layout(template="plotly_dark", barmode='group', title="Highest Scores per User")
+                    st.plotly_chart(fig_g, use_container_width=True)
+                else:
+                    st.info("No game scores recorded yet.")
+
+            # --- TAB 3: MANAGEMENT ---
+            with admin_sub_tabs[3]:
+                st.subheader("⚠️ Data Management")
+                if u_sel != "All Users":
+                    if st.button(f"🗑️ Permanent Wipe: {u_sel}"):
+                        new_logs = logs_df[logs_df['memberid'] != u_sel]
+                        conn.update(worksheet="ChatLogs", data=new_logs)
+                        st.success(f"Records for {u_sel} destroyed.")
+                        st.rerun()
+                else:
+                    st.write("Select a specific user in the sidebar to enable deletion.")
+        else:
+            st.info("The ChatLogs sheet is currently empty.")
+    else:
+        st.warning("Admin Access Required")
             # --- TAB 2: ACTIVITY ---
             with admin_sub_tabs[2]:
                 st.subheader("📊 Community Engagement")
@@ -370,6 +408,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
