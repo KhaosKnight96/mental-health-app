@@ -82,18 +82,51 @@ def talk_to_clara(prompt):
     res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=history)
     return res.choices[0].message.content
 
-# --- 4. LOGIN ---
+# --- 4. LOGIN GATE (FIXED) ---
 if not st.session_state.auth["in"]:
-    st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge</h1>", unsafe_allow_html=True)
-    u = st.text_input("Member ID").strip().lower()
-    p = st.text_input("Password", type="password")
-    if st.button("Sign In"):
-        users = get_data("Users")
-        if not users.empty and u in users['memberid'].values:
-            st.session_state.auth.update({"in": True, "mid": u})
-            st.rerun()
+    st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge Portal</h1>", unsafe_allow_html=True)
+    
+    with st.container(border=True):
+        u = st.text_input("Member ID").strip().lower()
+        p = st.text_input("Password", type="password")
+        
+        if st.button("Sign In", use_container_width=True):
+            if not u or not p:
+                st.warning("Please enter both Member ID and Password.")
+            else:
+                try:
+                    # 1. Fetch Data
+                    users_df = get_data("Users")
+                    
+                    if users_df.empty:
+                        st.error("Sheet 'Users' is empty or could not be reached.")
+                    else:
+                        # 2. DEBUG: Show columns if it fails (Hidden unless error)
+                        # st.write(users_df.columns) 
+                        
+                        # 3. Match credentials
+                        # We ensure columns are treated as strings to prevent matching errors
+                        match = users_df[
+                            (users_df['memberid'].astype(str).str.lower() == u) & 
+                            (users_df['password'].astype(str) == p)
+                        ]
+                        
+                        if not match.empty:
+                            # 4. Success - Update State
+                            st.session_state.auth.update({
+                                "in": True, 
+                                "mid": u,
+                                "role": str(match.iloc[0]['role']).lower() if 'role' in match.columns else 'user'
+                            })
+                            st.success(f"Welcome back, {u}!")
+                            st.rerun()
+                        else:
+                            st.error("Invalid Member ID or Password. Please try again.")
+                            
+                except Exception as e:
+                    st.error(f"Login System Error: {str(e)}")
+                    st.info("Check if your Google Sheet has columns named: 'memberid' and 'password'")
     st.stop()
-
 # --- 5. TABS ---
 t1, t2, t3 = st.tabs(["🏠 Cooper's Corner", "🛋️ Clara's Couch", "🚪 Logout"])
 
@@ -132,3 +165,4 @@ with t3:
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
+
