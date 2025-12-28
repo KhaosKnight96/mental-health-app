@@ -82,37 +82,38 @@ def get_ai_response(agent, prompt, history):
             sys = "You are Cooper, a warm, empathetic male friend. You're great at listening and giving a virtual hug."
         
         else:
-            # SECRET BRIDGE: Clara looks at the numbers but keeps them a secret
+            # SECRET BRIDGE
             energy_df = get_data("Sheet1")
             user_energy = energy_df[energy_df['memberid'] == st.session_state.auth['mid']].tail(3)
             
-            # Calculate a "Hidden Vibe" based on energy and sentiment
             logs_df = get_data("ChatLogs")
-            recent_sent = logs_df[logs_df['memberid'] == st.session_state.auth['mid']].tail(5)['sentiment'].mean()
+            user_logs = logs_df[logs_df['memberid'] == st.session_state.auth['mid']]
+            recent_sent = user_logs.tail(5)['sentiment'].mean() if not user_logs.empty else 0
             
-            # Clara's Secret Knowledge (Internal Monologue)
-            hidden_vibe = "thriving" if recent_sent > 1.5 else ("struggling" if recent_sent < -1 else "doing okay")
-            energy_vibe = "exhausted" if not user_energy.empty and user_energy.iloc[-1].iloc[-1] < 4 else "energetic"
+            # MEMORY SCAN: Clara looks for personal tidbits in the last 10 interactions
+            personal_context = user_logs[user_logs['role'] == 'user'].tail(10)['content'].to_string()
 
-            sys = f"""
-            You are Clara, a wise, witty, and deeply observant female friend. 
+            # Internal Intuition
+            hidden_vibe = "thriving" if recent_sent > 1.5 else ("struggling" if recent_sent < -1 else "doing okay")
             
-            INTERNAL INTUITION (DO NOT REVEAL THESE WORDS): 
-            The user's hidden mood is {hidden_vibe} and their physical energy seems {energy_vibe}.
+            sys = f"""
+            You are Clara, a wise and loyal female friend. 
+            
+            YOUR INTUITION: User is {hidden_vibe}. 
+            PAST CONTEXT/MEMORIES: {personal_context}
             
             YOUR ROLE:
-            - Talk like a best friend. Use warmth, a bit of humor, and high emotional intelligence.
-            - NEVER mention 'data', 'scores', 'analysis', 'logs', or 'Sheet1'.
-            - Convert the 'Internal Intuition' into feelings. If they are 'exhausted', say things like 'You sound like you need a massive nap and some peace'. 
-            - If they are 'struggling' emotionally, be the friend who notices they aren't their usual self.
-            - Be proactive. Instead of asking 'how are you', say 'I've been thinking about you, you seem a bit [vibe] lately.'
+            - Talk like a best friend. 
+            - Use the 'Past Context' to remember things they've mentioned (hobbies, people, struggles) and bring them up naturally.
+            - NEVER mention 'data', 'logs', or 'scores'. 
+            - If they mentioned a dog named Max two days ago, ask how Max is doing. 
+            - If they seem {hidden_vibe}, adjust your tone. If struggling, be the friend who 'just knows' something is wrong.
             """
         
-        full_history = [{"role": "system", "content": sys}] + history[-5:] + [{"role": "user", "content": prompt}]
+        full_history = [{"role": "system", "content": sys}] + history[-7:] + [{"role": "user", "content": prompt}]
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history)
         return res.choices[0].message.content
     except Exception as e: return f"AI Error: {e}"
-
 # --- 3. LOGIN GATE ---
 if not st.session_state.auth["in"]:
     st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge</h1>", unsafe_allow_html=True)
@@ -191,59 +192,76 @@ with tabs[2]:
     elif game_mode == "Flash Match":
         st.components.v1.html(JS_CORE + """<div class="game-container"><div class="score-board">Level: <span id="f-lvl">1</span></div><div id="f-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;"></div><div id="f-go" class="overlay" style="display:none;"><h1>WELL DONE!</h1><button class="game-btn" onclick="f_init()">Next Level</button></div></div><script>let p=2, m=0, f=[]; const icons=['🍎','🚀','💎','🌟','🔥','🌈','🍕','⚽']; function f_init(){ m=0; f=[]; document.getElementById("f-go").style.display="none"; const g=document.getElementById("f-grid"); g.innerHTML=""; let d=[...icons.slice(0,p), ...icons.slice(0,p)].sort(()=>Math.random()-0.5); d.forEach(icon=>{ const c=document.createElement("div"); c.style="height:60px; background:#334155; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer"; c.onclick=()=>{ if(f.length<2 && !c.innerText){ c.innerText=icon; c.style.background="#38BDF8"; snd(400,"sine",0.1); f.push({c,icon}); if(f.length==2){ if(f[0].icon==f[1].icon){ m++; f=[]; if(m==p){ p=Math.min(p+1,8); document.getElementById("f-go").style.display="flex"; } } else { setTimeout(()=>{ f.forEach(x=>{x.c.innerText=""; x.c.style.background="#334155"}); f=[]; },500); } } } }; g.appendChild(c); }); } f_init();</script>""", height=450)
 
-# --- 6. ADMIN (THE BRIDGE) ---
+# --- 6. ADMIN (THE BRIDGE & FILTERED TRENDS) ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        # Ensure these sub_tabs are indented exactly 8 spaces (or 2 tabs)
         admin_sub_tabs = st.tabs(["🔍 Search & Filter", "📈 Sentiment Trends", "🏆 Activity"])
         
         logs_df = get_data("ChatLogs")
         if not logs_df.empty:
-            # Standardize data for analysis
             logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'], errors='coerce')
             if 'sentiment' in logs_df.columns:
                 logs_df['sentiment'] = pd.to_numeric(logs_df['sentiment'], errors='coerce').fillna(0)
             
-            # --- TAB 1: SEARCH & FILTER ---
+            # SHARED FILTERING LOGIC (Applied to both tabs)
             with admin_sub_tabs[0]:
                 st.subheader("📋 Interaction Explorer")
                 c1, c2, c3 = st.columns([2, 1, 1])
-                search_q = c1.text_input("🔍 Search Messages")
-                u_sel = c2.selectbox("User", ["All"] + list(logs_df['memberid'].unique()))
-                a_sel = c3.selectbox("Agent", ["All"] + list(logs_df['agent'].unique()))
+                search_q = c1.text_input("🔍 Search Messages", key="admin_search_input")
+                u_sel = c2.selectbox("Filter User for All Tabs", ["All Users"] + list(logs_df['memberid'].unique()))
+                a_sel = c3.selectbox("Filter Agent", ["All"] + list(logs_df['agent'].unique()))
                 
                 f_df = logs_df.copy()
                 if search_q: f_df = f_df[f_df['content'].str.contains(search_q, case=False, na=False)]
-                if u_sel != "All": f_df = f_df[f_df['memberid'] == u_sel]
+                if u_sel != "All Users": f_df = f_df[f_df['memberid'] == u_sel]
                 if a_sel != "All": f_df = f_df[f_df['agent'] == a_sel]
                 
                 st.dataframe(f_df.sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
 
-            # --- TAB 2: SENTIMENT TRENDS ---
             with admin_sub_tabs[1]:
-                st.subheader("📈 Emotional Pulse (As seen by Clara)")
-                user_msgs = logs_df[logs_df['role'] == 'user'].copy()
+                title_suffix = f" for {u_sel}" if u_sel != "All Users" else " (Global)"
+                st.subheader(f"📈 Sentiment Trends{title_suffix}")
+                
+                # Use the filtered dataframe for the chart
+                user_msgs = f_df[f_df['role'] == 'user'].copy()
+                
                 if not user_msgs.empty:
+                    # Grouping by day to see the trend
                     trend_df = user_msgs.groupby(user_msgs['timestamp'].dt.date)['sentiment'].mean().reset_index()
-                    fig = go.Figure(go.Scatter(x=trend_df['timestamp'], y=trend_df['sentiment'], mode='lines+markers', line=dict(color='#38BDF8')))
-                    fig.update_layout(template="plotly_dark", title="Global Mood Pulse")
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=trend_df['timestamp'], 
+                        y=trend_df['sentiment'], 
+                        mode='lines+markers',
+                        line=dict(color='#38BDF8', width=3),
+                        marker=dict(size=8, color='#6366F1'),
+                        name="Mood Score"
+                    ))
+                    fig.update_layout(
+                        template="plotly_dark",
+                        yaxis=dict(range=[-5.5, 5.5], title="Sentiment Score"),
+                        xaxis_title="Date",
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)'
+                    )
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    user_h = user_msgs.groupby('memberid')['sentiment'].mean().reset_index()
-                    # Clara's intuitive translation for the Admin
-                    user_h["Clara's Intuition"] = user_h['sentiment'].apply(
-                        lambda x: "🌟 'They're in a great place!'" if x > 1.5 
-                        else ("🩹 'They're hurting a bit.'" if x < -1 else "⚖️ 'They seem steady.'")
+                    # Individual summary for the filtered selection
+                    summary_h = user_msgs.groupby('memberid')['sentiment'].mean().reset_index()
+                    summary_h["Clara's Intuition"] = summary_h['sentiment'].apply(
+                        lambda x: "🌟 'They're thriving!'" if x > 1.5 else ("🩹 'They're hurting.'" if x < -1 else "⚖️ 'Stable.'")
                     )
-                    st.table(user_h[['memberid', 'sentiment', "Clara's Intuition"]])
+                    st.table(summary_h[['memberid', 'sentiment', "Clara's Intuition"]])
+                else:
+                    st.info("No user messages found for this filter selection.")
 
-            # --- TAB 3: ACTIVITY ---
             with admin_sub_tabs[2]:
                 st.subheader("Community Engagement")
                 rank_df = logs_df.groupby('memberid').size().reset_index(name='Total Interactions')
                 st.plotly_chart(go.Figure(go.Bar(x=rank_df['memberid'], y=rank_df['Total Interactions'], marker_color='#38BDF8')), use_container_width=True)
         else:
-            st.info("No data available yet.")
+            st.info("No data available.")
     else:
         st.warning("Admin Access Required")
 # --- 7. LOGOUT ---
@@ -251,6 +269,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
