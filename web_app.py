@@ -59,6 +59,7 @@ def get_ai_sentiment(text):
 
 def save_log(agent, role, content, target_mid=None, is_admin_alert=False):
     try:
+        # TARGETED LOGIC: Use target_mid for alerts, else use current session ID
         mid = target_mid if is_admin_alert else st.session_state.auth['mid']
         stored_role = "admin_alert" if is_admin_alert else role
         sent_score = get_ai_sentiment(content) if role == "user" else 0
@@ -167,7 +168,7 @@ for i, agent in enumerate(["Cooper", "Clara"]):
 
 # --- 6. ARCADE TAB ---
 with tabs[2]:
-    game_mode = st.radio("Select Activity", ["Snake", "2048", "Memory Pattern", "Flash Match"], horizontal=True)
+    game_mode = st.radio("Select Activity", ["Snake", "Memory Pattern", "Flash Match"], horizontal=True)
     JS_CORE = """
     <script>
     const actx = new(window.AudioContext || window.webkitAudioContext)();
@@ -182,67 +183,93 @@ with tabs[2]:
         if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) e.preventDefault();
     }, {passive: false});
     </script>
-    <style>
-        .game-container { text-align:center; background:#1E293B; padding:20px; border-radius:20px; touch-action:none; position:relative; font-family:sans-serif; overflow:hidden; }
-        .overlay { display:flex; position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.95); flex-direction:column; align-items:center; justify-content:center; border-radius:20px; z-index:100; }
-        .game-btn { padding:12px 25px; background:#38BDF8; border:none; border-radius:8px; color:white; font-weight:bold; cursor:pointer; margin-top:10px; }
-        .score-board { background:#0F172A; padding:5px 15px; border-radius:8px; color:#38BDF8; display:inline-block; margin-bottom:10px; }
-    </style>
     """
     if game_mode == "Snake":
-        st.components.v1.html(JS_CORE + """<div class="game-container"><div class="score-board">Score: <span id="sn-s">0</span></div><canvas id="sn-c" width="300" height="300" style="background:#0F172A; border:2px solid #38BDF8; border-radius:10px;"></canvas><div id="sn-go" class="overlay" style="display:none;"><h1 style="color:#F87171;">GAME OVER</h1><button class="game-btn" onclick="sn_init()">Play Again</button></div></div><script>let sn, f, d, g, s, run=false; const c=document.getElementById("sn-c"), x=c.getContext("2d"), b=15; function sn_init(){ sn=[{x:150,y:150}]; f={x:150,y:75}; d="R"; s=0; run=true; document.getElementById("sn-go").style.display="none"; clearInterval(g); g=setInterval(sn_upd,120); } window.addEventListener("keydown", e=>{ if(e.key=="ArrowLeft"&&d!="R")d="L";if(e.key=="ArrowUp"&&d!="D")d="U";if(e.key=="ArrowRight"&&d!="L")d="R";if(e.key=="ArrowDown"&&d!="U")d="D";}); function sn_upd(){ x.fillStyle="#0F172A"; x.fillRect(0,0,300,300); x.fillStyle="#F87171"; x.fillRect(f.x,f.y,b,b); sn.forEach((p,i)=>{x.fillStyle=i==0?"#38BDF8":"#334155"; x.fillRect(p.x,p.y,b,b);}); let h={...sn[0]}; if(d=="L")h.x-=b; if(d=="U")h.y-=b; if(d=="R")h.x+=b; if(d=="D")h.y+=b; if(h.x==f.x&&h.y==f.y){ s++; snd(600,"sine",0.1); f={x:Math.floor(Math.random()*19)*b,y:Math.floor(Math.random()*19)*b}; } else sn.pop(); if(h.x<0||h.x>=300||h.y<0||h.y>=300||sn.some(z=>z.x==h.x&&z.y==h.y)){ run=false; clearInterval(g); snd(100,"sawtooth",0.5); document.getElementById("sn-go").style.display="flex"; } if(run)sn.unshift(h); document.getElementById("sn-s").innerText=s; } sn_init();</script>""", height=520)
-    elif game_mode == "2048":
-        st.components.v1.html(JS_CORE + """<div class="game-container"><div class="score-board">Score: <span id="s2048">0</span></div><div id="grid2048" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px; background:#0F172A; padding:10px; border-radius:10px; width:280px; margin:auto;"><div id="go2048" class="overlay" style="display:none;"><h1 style="color:#F87171;">GAME OVER</h1><button class="game-btn" onclick="init2048()">New Game</button></div></div></div><script>/* 2048 Logic Integrated */</script>""", height=500)
-    elif game_mode == "Memory Pattern":
-        st.components.v1.html(JS_CORE + """<div class="game-container"><div class="score-board">Level: <span id="m-lvl">1</span></div><div id="m-board" style="display:grid; grid-template-columns:repeat(2,100px); gap:15px; justify-content:center; position:relative;"><div onclick="p(0)" id="b0" style="height:100px; background:#ef4444; opacity:0.6; border-radius:15px;"></div><div onclick="p(1)" id="b1" style="height:100px; background:#3b82f6; opacity:0.6; border-radius:15px;"></div><div onclick="p(2)" id="b2" style="height:100px; background:#22c55e; opacity:0.6; border-radius:15px;"></div><div onclick="p(3)" id="b3" style="height:100px; background:#eab308; opacity:0.6; border-radius:15px;"></div><div id="m-go" class="overlay"><h2 id="m-msg">Simon Says</h2><button class="game-btn" onclick="start()">Start Game</button></div></div></div><script>/* Simon Logic Integrated */</script>""", height=450)
-    elif game_mode == "Flash Match":
-        st.components.v1.html(JS_CORE + """<div class="game-container"><div class="score-board">Level: <span id="f-lvl">1</span></div><div id="f-grid" style="display:grid; grid-template-columns:repeat(4,1fr); gap:10px;"></div><div id="f-go" class="overlay" style="display:none;"><h1>WELL DONE!</h1><button class="game-btn" onclick="f_next()">Next Level</button></div></div><script>/* Match Logic Integrated */</script>""", height=450)
+        st.components.v1.html(JS_CORE + """<div style="text-align:center; background:#1E293B; padding:20px; border-radius:20px;"><div style="color:#38BDF8; font-family:sans-serif; margin-bottom:10px;">Score: <span id="s">0</span></div><canvas id="sn" width="300" height="300" style="border:2px solid #38BDF8; border-radius:10px;"></canvas></div><script>let sn=[{x:150,y:150}], f={x:75,y:75}, d="R", s=0, c=document.getElementById("sn"), x=c.getContext("2d"); setInterval(()=>{ x.fillStyle="#0F172A"; x.fillRect(0,0,300,300); x.fillStyle="#F87171"; x.fillRect(f.x,f.y,15,15); sn.forEach(p=>{x.fillStyle="#38BDF8"; x.fillRect(p.x,p.y,15,15)}); let h={...sn[0]}; if(d=="L")h.x-=15; if(d=="U")h.y-=15; if(d=="R")h.x+=15; if(d=="D")h.y+=15; if(h.x==f.x&&h.y==f.y){s++; snd(600,"sine",0.1); f={x:Math.floor(Math.random()*20)*15,y:Math.floor(Math.random()*20)*15}}else sn.pop(); sn.unshift(h); document.getElementById("s").innerText=s; }, 100); window.onkeydown=e=>{if(e.key=="ArrowLeft"&&d!="R")d="L";if(e.key=="ArrowUp"&&d!="D")d="U";if(e.key=="ArrowRight"&&d!="L")d="R";if(e.key=="ArrowDown"&&d!="U")d="D"};</script>""", height=450)
 
-# --- 7. ADMIN PANEL ---
+# --- 7. ROBUST ADMIN PANEL ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
         admin_sub = st.tabs(["🔍 Explorer", "🚨 Broadcast", "📈 Analytics", "🛠️ System Tools"])
-        logs_df = get_data("ChatLogs")
+        
+        raw_logs = get_data("ChatLogs")
         users_df = get_data("Users")
         
-        if not logs_df.empty:
-            logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'])
+        if not raw_logs.empty:
+            # FIX: Robust Date Parsing & Cleaning
+            logs_df = raw_logs.dropna(subset=['content']).copy()
+            logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'], format='mixed', errors='coerce')
+            logs_df = logs_df.dropna(subset=['timestamp']) 
             
             with admin_sub[0]:
+                st.subheader("📋 Global Log Explorer")
+                
+                # Metric Summary
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Total Messages", len(logs_df))
+                m2.metric("Active Users", logs_df['memberid'].nunique())
+                m3.metric("Avg Sentiment", round(logs_df[logs_df['role']=='user']['sentiment'].mean(), 2) if not logs_df.empty else 0)
+
                 c1, c2, c3 = st.columns([2,1,1])
-                s_q = c1.text_input("Search Logs")
-                u_f = c2.selectbox("User", ["All"] + list(logs_df['memberid'].unique()))
-                a_f = c3.selectbox("Agent", ["All", "Cooper", "Clara"])
+                s_q = c1.text_input("🔍 Search message content...", placeholder="Keyword search...")
+                u_list = ["All Users"] + sorted([str(x) for x in logs_df['memberid'].unique()])
+                u_f = c2.selectbox("Filter User", u_list)
+                a_f = c3.selectbox("Filter Agent", ["All Agents", "Cooper", "Clara"])
+                
                 f_df = logs_df.copy()
-                if u_f != "All": f_df = f_df[f_df['memberid'] == u_f]
-                if s_q: f_df = f_df[f_df['content'].str.contains(s_q, case=False)]
+                if u_f != "All Users": f_df = f_df[f_df['memberid'].astype(str) == u_f]
+                if a_f != "All Agents": f_df = f_df[f_df['agent'] == a_f]
+                if s_q: f_df = f_df[f_df['content'].str.contains(s_q, case=False, na=False)]
+                
                 st.dataframe(f_df.sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
 
             with admin_sub[1]:
-                t_u = st.selectbox("Target User", sorted(list(users_df['memberid'].unique())))
-                t_r = st.radio("Target Room", ["Cooper", "Clara"], horizontal=True)
-                msg = st.text_area("Alert Content")
-                if st.button("Send Alert"):
-                    save_log(t_r, "admin_alert", msg, target_mid=t_u, is_admin_alert=True)
-                    st.success(f"Sent to {t_u}")
+                st.subheader("🚨 Targeted Broadcast")
+                st.info("Broadcasted messages will only appear for the specific user selected.")
+                ca, cb = st.columns(2)
+                with ca:
+                    t_u = st.selectbox("Recipient (Member ID)", sorted(list(users_df['memberid'].unique())), key="admin_target_broadcast")
+                with cb:
+                    t_r = st.radio("Display Room", ["Cooper", "Clara"], horizontal=True, key="admin_room_broadcast")
+                
+                msg = st.text_area("Alert Content", placeholder="Type your notice here...")
+                if st.button("🚀 Push Alert", use_container_width=True):
+                    if msg:
+                        save_log(t_r, "admin_alert", msg, target_mid=t_u, is_admin_alert=True)
+                        st.success(f"✅ Alert pushed to {t_u}")
+                        st.cache_data.clear()
+                    else:
+                        st.error("Message cannot be empty.")
 
             with admin_sub[2]:
-                mood_df = logs_df[logs_df['role'] == 'user'].copy()
-                fig = go.Figure(go.Scatter(x=mood_df['timestamp'], y=mood_df['sentiment'], mode='lines+markers'))
-                st.plotly_chart(fig, use_container_width=True)
+                st.subheader("📈 Emotional Sentiment Trends")
+                mood_df = logs_df[logs_df['role'] == 'user'].sort_values('timestamp')
+                if not mood_df.empty:
+                    fig = go.Figure(go.Scatter(x=mood_df['timestamp'], y=mood_df['sentiment'], mode='lines+markers', line=dict(color='#38BDF8')))
+                    fig.update_layout(template="plotly_dark", paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis_title="Score (-5 to 5)")
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Not enough data for analytics.")
 
             with admin_sub[3]:
-                st.subheader("⚠️ Dangerous Actions")
-                target_wipe = st.selectbox("Select User to Wipe", ["None"] + sorted(list(users_df['memberid'].unique())))
-                confirm = st.checkbox("Confirm deletion")
-                if st.button("🔥 Wipe User History", type="primary"):
-                    if target_wipe != "None" and confirm:
-                        new_logs = logs_df[logs_df['memberid'] != target_wipe]
-                        conn.update(worksheet="ChatLogs", data=new_logs)
-                        st.success(f"History for {target_wipe} deleted.")
-                        st.rerun()
+                st.subheader("🛠️ Database Tools")
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.markdown("#### User History Purge")
+                    target_wipe = st.selectbox("Select User to Wipe", ["None"] + sorted(list(users_df['memberid'].unique())))
+                    confirm = st.checkbox("I confirm permanent deletion")
+                    if st.button("🔥 Wipe User History", type="primary"):
+                        if target_wipe != "None" and confirm:
+                            new_logs = logs_df[logs_df['memberid'].astype(str) != str(target_wipe)]
+                            conn.update(worksheet="ChatLogs", data=new_logs)
+                            st.success(f"History for {target_wipe} deleted.")
+                            st.rerun()
+                with col_b:
+                    st.markdown("#### Database View")
+                    st.write("Registered Users:", len(users_df))
+                    st.dataframe(users_df[['memberid', 'name', 'role']], hide_index=True)
     else:
-        st.warning("Admin Access Required.")
+        st.error("⛔ Admin Access Required")
 
 with tabs[4]:
     if st.button("Logout"):
