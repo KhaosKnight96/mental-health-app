@@ -39,7 +39,6 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data(ws):
     try:
-        # TTL=0 is critical for real-time alerts and admin monitoring
         df = conn.read(worksheet=ws, ttl=0)
         df.columns = [str(c).strip().lower() for c in df.columns]
         return df
@@ -60,7 +59,6 @@ def get_ai_sentiment(text):
 
 def save_log(agent, role, content, target_mid=None, is_admin_alert=False):
     try:
-        # Targeted Logic: Use target_mid for alerts, session ID for regular chats
         mid = target_mid if is_admin_alert else st.session_state.auth['mid']
         stored_role = "admin_alert" if is_admin_alert else role
         sent_score = get_ai_sentiment(content) if role == "user" else 0
@@ -80,13 +78,12 @@ def save_log(agent, role, content, target_mid=None, is_admin_alert=False):
     except Exception as e:
         st.error(f"Save Error: {e}")
 
-# --- 3. LIVE ALERT LISTENER (FRAGMENT) ---
+# --- 3. LIVE ALERT LISTENER ---
 @st.fragment(run_every="8s")
 def alert_listener():
     if st.session_state.auth["in"]:
         all_logs = get_data("ChatLogs")
         if not all_logs.empty:
-            # Look for alerts where MemberID matches the current user
             my_alerts = all_logs[(all_logs['memberid'] == st.session_state.auth['mid']) & (all_logs['role'] == 'admin_alert')]
             if not my_alerts.empty:
                 latest_msg = my_alerts.iloc[-1]['content']
@@ -97,10 +94,8 @@ def get_ai_response(agent, prompt, history):
         client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
         users_df = get_data("Users")
         user_profile = users_df[users_df['memberid'] == st.session_state.auth['mid']].iloc[0]
-        
         u_name = user_profile.get('name', 'Friend')
-        u_bio = user_profile.get('bio', 'No bio provided.')
-
+        
         logs_df = get_data("ChatLogs")
         user_logs = logs_df[logs_df['memberid'] == st.session_state.auth['mid']]
         personal_context = user_logs[user_logs['agent'] == agent].tail(15)['content'].to_string()
@@ -108,17 +103,13 @@ def get_ai_response(agent, prompt, history):
         recent_sent = user_logs.tail(10)['sentiment'].mean() if not user_logs.empty else 0
         hidden_vibe = "thriving" if recent_sent > 1.5 else ("struggling" if recent_sent < -1 else "doing okay")
 
-        if agent == "Cooper":
-            sys = f"You are Cooper, a warm male friend. User: {u_name}. Mood: {hidden_vibe}. Context: {personal_context}"
-        else:
-            sys = f"You are Clara, a wise female friend. User: {u_name}. Mood: {hidden_vibe}. Context: {personal_context}"
-        
+        sys = f"You are {agent}. User: {u_name}. Mood: {hidden_vibe}. Context: {personal_context}"
         full_history = [{"role": "system", "content": sys}] + history[-10:] + [{"role": "user", "content": prompt}]
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history)
         return res.choices[0].message.content
     except Exception as e: return f"AI Error: {e}"
 
-# --- 4. AUTHENTICATION GATE ---
+# --- 4. AUTHENTICATION ---
 if not st.session_state.auth["in"]:
     st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge</h1>", unsafe_allow_html=True)
     auth_mode = st.radio("Choose Action", ["Sign In", "Sign Up"], horizontal=True)
@@ -150,26 +141,19 @@ if not st.session_state.auth["in"]:
                 st.success("Account Created! Please Sign In.")
     st.stop()
 
-# Start background listener for active users
 alert_listener()
 
-# --- 5. MAIN NAVIGATION ---
+# --- 5. TABS ---
 tabs = st.tabs(["🏠 Cooper", "🛋️ Clara", "🎮 Games", "🛡️ Admin", "🚪 Logout"])
 
-# --- CHAT INTERFACES (COOPER & CLARA) ---
 for i, agent in enumerate(["Cooper", "Clara"]):
     with tabs[i]:
         st.markdown(f'<div class="avatar-pulse">{"🤝" if agent=="Cooper" else "📊"}</div>', unsafe_allow_html=True)
         logs = st.session_state.cooper_logs if agent == "Cooper" else st.session_state.clara_logs
-        
         chat_box = st.container(height=500, border=False)
         with chat_box:
             for m in logs:
-                if m["role"] == "user": div = "user-bubble"
-                elif m["role"] == "admin_alert": 
-                    div = "admin-bubble"
-                    st.components.v1.html("<script>const a=new AudioContext(); const o=a.createOscillator(); const g=a.createGain(); o.frequency.value=523; g.gain.exponentialRampToValueAtTime(0.01, a.currentTime+0.5); o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime+0.5);</script>", height=0)
-                else: div = "ai-bubble"
+                div = "user-bubble" if m["role"] == "user" else ("admin-bubble" if m["role"] == "admin_alert" else "ai-bubble")
                 st.markdown(f'<div class="chat-bubble {div}">{m["content"]}</div>', unsafe_allow_html=True)
 
         if p := st.chat_input(f"Speak with {agent}...", key=f"chat_{agent}"):
@@ -181,16 +165,10 @@ for i, agent in enumerate(["Cooper", "Clara"]):
             save_log(agent, "assistant", res)
             st.rerun()
 
-# --- GAMES INTERFACE ---
-with tabs[2]:
-    st.info("Arcade Mode: Select a game to begin.")
-    # (Existing game code logic from previous steps goes here)
-
-# --- 6. ADMIN PANEL (FULL FILTER & BROADCAST) ---
+# --- 6. ADMIN PANEL ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        admin_sub = st.tabs(["🔍 Explorer", "🚨 Broadcast", "📈 Analytics", "⚠️ Tools"])
-        
+        admin_sub = st.tabs(["🔍 Explorer", "🚨 Broadcast", "📈 Analytics", "🛠️ System Tools"])
         logs_df = get_data("ChatLogs")
         users_df = get_data("Users")
         
@@ -198,51 +176,42 @@ with tabs[3]:
             logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'])
             
             with admin_sub[0]:
-                st.subheader("📋 Global Interaction Explorer")
-                c1, c2, c3, c4 = st.columns([2,1,1,1])
-                with c1: s_q = st.text_input("🔍 Search Keyword")
-                with c2: u_f = st.selectbox("Filter User", ["All"] + sorted(list(logs_df['memberid'].unique())))
-                with c3: a_f = st.selectbox("Filter Agent", ["All", "Cooper", "Clara"])
-                with c4: d_r = st.date_input("Date Range", [logs_df['timestamp'].min(), logs_df['timestamp'].max()])
-
+                c1, c2, c3 = st.columns([2,1,1])
+                s_q = c1.text_input("Search Logs")
+                u_f = c2.selectbox("User", ["All"] + list(logs_df['memberid'].unique()))
+                a_f = c3.selectbox("Agent", ["All", "Cooper", "Clara"])
                 f_df = logs_df.copy()
-                if s_q: f_df = f_df[f_df['content'].str.contains(s_q, case=False, na=False)]
                 if u_f != "All": f_df = f_df[f_df['memberid'] == u_f]
-                if a_f != "All": f_df = f_df[f_df['agent'] == a_f]
-                if len(d_r) == 2:
-                    f_df = f_df[(f_df['timestamp'].dt.date >= d_r[0]) & (f_df['timestamp'].dt.date <= d_r[1])]
-                
+                if s_q: f_df = f_df[f_df['content'].str.contains(s_q, case=False)]
                 st.dataframe(f_df.sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
 
             with admin_sub[1]:
-                st.subheader("🚨 Send Targeted Alert")
-                ca, cb = st.columns(2)
-                with ca: t_u = st.selectbox("Target Recipient (User ID)", sorted(list(users_df['memberid'].unique())))
-                with cb: t_r = st.radio("Inbound Room", ["Cooper", "Clara"], horizontal=True)
-                
-                msg = st.text_area("Alert Message")
-                if st.button("🚀 Send Alert Now", use_container_width=True):
-                    if msg:
-                        save_log(t_r, "admin_alert", msg, target_mid=t_u, is_admin_alert=True)
-                        st.success(f"Alert successfully pushed to {t_u}")
-                    else: st.error("Message cannot be empty.")
+                t_u = st.selectbox("Target User", sorted(list(users_df['memberid'].unique())))
+                t_r = st.radio("Target Room", ["Cooper", "Clara"], horizontal=True)
+                msg = st.text_area("Alert Content")
+                if st.button("Send Alert"):
+                    save_log(t_r, "admin_alert", msg, target_mid=t_u, is_admin_alert=True)
+                    st.success(f"Sent to {t_u}")
 
             with admin_sub[2]:
-                st.subheader("📈 Sentiment Trends")
                 mood_df = logs_df[logs_df['role'] == 'user'].copy()
-                if not mood_df.empty:
-                    fig = go.Figure(go.Scatter(x=mood_df['timestamp'], y=mood_df['sentiment'], mode='lines+markers', line=dict(color='#38BDF8')))
-                    fig.update_layout(template="plotly_dark", yaxis_title="Sentiment Score")
-                    st.plotly_chart(fig, use_container_width=True)
+                fig = go.Figure(go.Scatter(x=mood_df['timestamp'], y=mood_df['sentiment'], mode='lines+markers'))
+                st.plotly_chart(fig, use_container_width=True)
 
             with admin_sub[3]:
-                st.subheader("🛠️ User Directory")
-                st.dataframe(users_df, use_container_width=True)
+                st.subheader("⚠️ Dangerous Actions")
+                target_wipe = st.selectbox("Select User to Wipe", ["None"] + sorted(list(users_df['memberid'].unique())))
+                confirm = st.checkbox("Confirm: This will permanently delete all logs for this user.")
+                if st.button("🔥 Wipe User History", type="primary"):
+                    if target_wipe != "None" and confirm:
+                        new_logs = logs_df[logs_df['memberid'] != target_wipe]
+                        conn.update(worksheet="ChatLogs", data=new_logs)
+                        st.success(f"History for {target_wipe} deleted.")
+                        st.rerun()
     else:
-        st.warning("⚠️ Admin privileges required to view this section.")
+        st.warning("Admin Access Required.")
 
-# --- LOGOUT ---
 with tabs[4]:
-    if st.button("Confirm Logout"):
+    if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
