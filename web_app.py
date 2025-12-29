@@ -39,45 +39,24 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data(ws):
     try:
+        # Read the sheet
         df = conn.read(worksheet=ws, ttl=0)
+        
+        # CLEANING HEADERS: This fixes the KeyError 'memberid'
+        # 1. Convert to string
+        # 2. Remove leading/trailing spaces
+        # 3. Force lowercase
         df.columns = [str(c).strip().lower() for c in df.columns]
+        
+        # If the dataframe is empty but has columns, return it
+        # If it's totally missing, return an empty DF with the expected columns
+        if df.empty and ws == "ChatLogs":
+            return pd.DataFrame(columns=["timestamp", "memberid", "agent", "role", "content", "sentiment"])
+            
         return df
-    except: return pd.DataFrame()
-
-def get_ai_sentiment(text):
-    try:
-        client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
-        res = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "Score sentiment from -5 (distress) to 5 (thriving). Output ONLY the integer."},
-                {"role": "user", "content": text}
-            ]
-        )
-        return int(res.choices[0].message.content.strip())
-    except: return 0
-
-def save_log(agent, role, content, target_mid=None, is_admin_alert=False):
-    try:
-        # TARGETED LOGIC: Use target_mid for alerts, else use current session ID
-        mid = target_mid if is_admin_alert else st.session_state.auth['mid']
-        stored_role = "admin_alert" if is_admin_alert else role
-        sent_score = get_ai_sentiment(content) if role == "user" else 0
-        
-        new_row = pd.DataFrame([{
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "memberid": mid,
-            "agent": agent, 
-            "role": stored_role,
-            "content": content,
-            "sentiment": sent_score
-        }])
-        
-        all_logs = get_data("ChatLogs")
-        updated_logs = pd.concat([all_logs, new_row], ignore_index=True)
-        conn.update(worksheet="ChatLogs", data=updated_logs)
     except Exception as e:
-        st.error(f"Save Error: {e}")
+        st.error(f"Error reading worksheet '{ws}': {e}")
+        return pd.DataFrame()
 
 # --- 3. LIVE ALERT LISTENER ---
 @st.fragment(run_every="8s")
@@ -275,3 +254,4 @@ with tabs[4]:
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
+
