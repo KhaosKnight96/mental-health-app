@@ -262,32 +262,131 @@ with tabs[2]:
         f_init();
         </script>""", height=450)
 
-# --- 6. ADMIN ---
+# --- 6. ADMIN (THE BRIDGE & DATA MANAGEMENT) ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        admin_sub = st.tabs(["🔍 Explorer", "🚨 Send Alert", "📈 Trends", "⚠️ Data"])
+        # Create clear sub-navigation
+        admin_sub_tabs = st.tabs(["🔍 Interaction Explorer", "🚨 Send Alert", "📈 Mood Analytics", "⚠️ System Tools"])
+        
+        # Load all data once for the admin session
         logs_df = get_data("ChatLogs")
+        users_df = get_data("Users")
         
-        with admin_sub[0]: # Explorer
-            st.dataframe(logs_df.sort_values('timestamp', ascending=False), use_container_width=True)
+        if not logs_df.empty:
+            # Data Cleaning for Admin View
+            logs_df['timestamp'] = pd.to_datetime(logs_df['timestamp'])
             
-        with admin_sub[1]: # SEND ALERT
-            st.subheader("🚨 Direct Admin Broadcast")
-            t_u = st.selectbox("Target User", sorted(logs_df['memberid'].unique()))
-            t_a = st.selectbox("Target Agent", ["Cooper", "Clara"])
-            t_m = st.text_area("Message")
-            if st.button("Send Red Alert"):
-                new_alert = pd.DataFrame([{"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), "memberid": t_u, "agent": t_a, "role": "admin_alert", "content": f"⚠️ ADMIN: {t_m}", "sentiment": 0}])
-                conn.update(worksheet="ChatLogs", data=pd.concat([get_data("ChatLogs"), new_alert], ignore_index=True))
-                st.success("Alert Sent!")
-        
-        with admin_sub[3]: # Data Mgmt
-            if st.button("Wipe Logs for a User"):
-                st.warning("Feature active in Explorer tab logic.")
-    else: st.warning("Admin Only")
+            # --- TAB 1: SEARCH & MULTI-FILTER ---
+            with admin_sub_tabs[0]:
+                st.subheader("📋 Global Chat Explorer")
+                
+                # Filter Sidebar/Columns
+                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                
+                with col1:
+                    search_q = st.text_input("🔍 Search Message Content", placeholder="Type keywords...")
+                with col2:
+                    u_filter = st.selectbox("User", ["All Users"] + sorted(list(logs_df['memberid'].unique())))
+                with col3:
+                    a_filter = st.selectbox("Agent", ["All Agents", "Cooper", "Clara"])
+                with col4:
+                    # Date Filter
+                    date_range = st.date_input("Date Range", [logs_df['timestamp'].min(), logs_df['timestamp'].max()])
+
+                # Apply Filtering Logic
+                filtered_df = logs_df.copy()
+                if search_q:
+                    filtered_df = filtered_df[filtered_df['content'].str.contains(search_q, case=False, na=False)]
+                if u_filter != "All Users":
+                    filtered_df = filtered_df[filtered_df['memberid'] == u_filter]
+                if a_filter != "All Agents":
+                    filtered_df = filtered_df[filtered_df['agent'] == a_filter]
+                if len(date_range) == 2:
+                    start_dt, end_dt = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1]) + pd.Timedelta(days=1)
+                    filtered_df = filtered_df[(filtered_df['timestamp'] >= start_dt) & (filtered_df['timestamp'] < end_dt)]
+
+                # Display Results
+                st.write(f"Showing **{len(filtered_df)}** interactions")
+                st.dataframe(
+                    filtered_df.sort_values('timestamp', ascending=False), 
+                    use_container_width=True, 
+                    hide_index=True,
+                    column_config={
+                        "sentiment": st.column_config.NumberColumn("Score", format="%d 🎭"),
+                        "timestamp": st.column_config.DatetimeColumn("Time", format="D MMM, h:mm A"),
+                    }
+                )
+
+            # --- TAB 2: BROADCAST ALERT ---
+            with admin_sub_tabs[1]:
+                st.subheader("🚨 Send Direct Admin Notice")
+                st.info("This message will appear in RED with a notification sound for the specific user.")
+                
+                c_a, c_b = st.columns(2)
+                with c_a:
+                    target_u = st.selectbox("Select User", sorted(list(users_df['memberid'].unique())), key="alert_u")
+                with c_b:
+                    target_a = st.radio("Target Chat Room", ["Cooper", "Clara"], horizontal=True)
+                
+                alert_text = st.text_area("Alert Message", placeholder="E.g., Please check your email or 'Let's discuss your recent mood score'.")
+                
+                if st.button("🚀 Broadcast Alert", use_container_width=True):
+                    if alert_text:
+                        save_log(target_a, "admin_alert", alert_text, is_admin_alert=True)
+                        st.success(f"Alert successfully sent to {target_u} in {target_a}'s room.")
+                    else:
+                        st.error("Please enter a message.")
+
+            # --- TAB 3: MOOD ANALYTICS ---
+            with admin_sub_tabs[2]:
+                st.subheader("📈 Emotional Sentiment Tracking")
+                
+                # Only analyze user messages
+                mood_df = logs_df[logs_df['role'] == 'user'].copy()
+                
+                if not mood_df.empty:
+                    # Group by User or Time
+                    chart_view = st.segmented_control("View By", ["Timeline", "User Comparison"], default="Timeline")
+                    
+                    if chart_view == "Timeline":
+                        daily_mood = mood_df.groupby(mood_df['timestamp'].dt.date)['sentiment'].mean().reset_index()
+                        fig = go.Figure(go.Scatter(x=daily_mood['timestamp'], y=daily_mood['sentiment'], mode='lines+markers', line=dict(color='#38BDF8')))
+                        fig.update_layout(title="Average Community Mood Over Time", template="plotly_dark", yaxis=dict(range=[-5, 5]))
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        user_mood = mood_df.groupby('memberid')['sentiment'].mean().sort_values().reset_index()
+                        fig = go.Figure(go.Bar(x=user_mood['memberid'], y=user_mood['sentiment'], marker_color='#6366F1'))
+                        fig.update_layout(title="Average Mood Score by User", template="plotly_dark")
+                        st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Not enough sentiment data to generate charts.")
+
+            # --- TAB 4: SYSTEM TOOLS ---
+            with admin_sub_tabs[3]:
+                st.subheader("🛠️ Database Management")
+                
+                with st.expander("🗑️ Delete User History"):
+                    del_u = st.selectbox("User to Wipe", ["Select User..."] + sorted(list(users_df['memberid'].unique())))
+                    confirm_del = st.checkbox("I understand this cannot be undone.")
+                    if st.button("Wipe Chat History", type="primary"):
+                        if del_u != "Select User..." and confirm_del:
+                            clean_logs = logs_df[logs_df['memberid'] != del_u]
+                            conn.update(worksheet="ChatLogs", data=clean_logs)
+                            st.success(f"All logs for {del_u} have been deleted.")
+                            st.rerun()
+                        else:
+                            st.error("Please select a user and check the confirmation box.")
+                
+                with st.expander("👥 User Directory"):
+                    st.dataframe(users_df, use_container_width=True)
+        else:
+            st.info("The ChatLogs database is currently empty.")
+    else:
+        st.warning("⚠️ Restricted Area: Admin Privileges Required.")
 
 with tabs[4]:
     if st.button("Logout"):
         st.session_state.clear()
         st.rerun()
+
 
