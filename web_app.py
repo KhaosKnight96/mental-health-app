@@ -141,11 +141,10 @@ def get_ai_response(agent, prompt, history):
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history)
         return res.choices[0].message.content
     except Exception as e: return f"AI Error: {e}"
-# --- 3. LOGIN & SIGNUP GATE (UPDATED) ---
+# --- 3. LOGIN & SIGNUP GATE (NAME & PASSWORD CONFIRMATION) ---
 if not st.session_state.auth["in"]:
     st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge</h1>", unsafe_allow_html=True)
     
-    # Toggle between Sign In and Sign Up
     auth_mode = st.radio("Choose Action", ["Sign In", "Sign Up"], horizontal=True)
     
     with st.container(border=True):
@@ -176,29 +175,42 @@ if not st.session_state.auth["in"]:
         
         else: # SIGN UP MODE
             st.subheader("Create Your Profile")
-            new_u = st.text_input("Choose Member ID").strip().lower()
-            new_p = st.text_input("Choose Password", type="password")
             
+            # Row 1: Basic Info
+            new_name = st.text_input("Full Name (or Nickname)")
+            new_u = st.text_input("Choose Member ID (Username)").strip().lower()
+            
+            # Row 2: Passwords
+            col_p1, col_p2 = st.columns(2)
+            with col_p1:
+                new_p = st.text_input("Password", type="password")
+            with col_p2:
+                confirm_p = st.text_input("Confirm Password", type="password")
+            
+            # Row 3: Demographics
             col1, col2 = st.columns(2)
             with col1:
                 age = st.number_input("Age", min_value=13, max_value=120, value=25)
             with col2:
                 gender = st.selectbox("Gender", ["Male", "Female", "Non-binary", "Other", "Prefer not to say"])
             
-            bio = st.text_area("About You", placeholder="Tell us a bit about yourself so Cooper and Clara can get to know you...")
+            bio = st.text_area("About You", placeholder="Tell us a bit about yourself...")
 
             if st.button("Register Account", use_container_width=True):
-                if new_u and new_p:
+                if not new_u or not new_p or not new_name:
+                    st.error("Name, Member ID, and Password are required.")
+                elif new_p != confirm_p:
+                    st.error("Passwords do not match. Please re-type them.")
+                else:
                     users = get_data("Users")
                     
-                    # Check if ID exists
                     if not users.empty and new_u in users['memberid'].astype(str).str.lower().values:
                         st.warning("That Member ID is already taken.")
                     else:
-                        # Prepare new user data
                         new_user_row = pd.DataFrame([{
                             "memberid": new_u, 
                             "password": new_p, 
+                            "name": new_name,   # Added Name
                             "role": "user",
                             "age": age,
                             "gender": gender,
@@ -206,14 +218,11 @@ if not st.session_state.auth["in"]:
                             "joined": datetime.now().strftime("%Y-%m-%d")
                         }])
                         
-                        # Update Google Sheets
                         updated_users = pd.concat([users, new_user_row], ignore_index=True)
                         conn.update(worksheet="Users", data=updated_users)
                         
-                        st.success("Registration complete! Switch to 'Sign In' to enter.")
+                        st.success(f"Welcome, {new_name}! Registration complete. Switch to 'Sign In' to enter.")
                         st.balloons()
-                else:
-                    st.error("Member ID and Password are required.")
     st.stop()
 # --- 4. NAVIGATION (WITH AUTO-SCROLL) ---
 tabs = st.tabs(["🏠 Cooper", "🛋️ Clara", "🎮 Games", "🛡️ Admin", "🚪 Logout"])
@@ -424,5 +433,6 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
