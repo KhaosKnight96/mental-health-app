@@ -59,16 +59,21 @@ def get_ai_sentiment(text):
         return int(res.choices[0].message.content.strip())
     except: return 0
 
-def save_log(agent, role, content):
+def save_log(agent, role, content, is_admin_alert=False):
     try:
+        # If it's an admin alert, we'll tag the 'role' as 'admin_alert'
+        stored_role = "admin_alert" if is_admin_alert else role
         sent_score = get_ai_sentiment(content) if role == "user" else 0
+        
         new_row = pd.DataFrame([{
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "memberid": st.session_state.auth['mid'],
-            "agent": agent, "role": role, "content": content,
+            "agent": agent, 
+            "role": stored_role, # Tagging it here
+            "content": content,
             "sentiment": sent_score
         }])
-        # Append to existing logs
+        
         all_logs = get_data("ChatLogs")
         updated_logs = pd.concat([all_logs, new_row], ignore_index=True)
         conn.update(worksheet="ChatLogs", data=updated_logs)
@@ -438,6 +443,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
