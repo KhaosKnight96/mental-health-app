@@ -78,57 +78,65 @@ def get_ai_response(agent, prompt, history):
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
         
-        # 1. LOAD ALL USER LOGS
+        # 1. LOAD USER DATA (For Persona Awareness)
+        users_df = get_data("Users")
+        user_profile = users_df[users_df['memberid'] == st.session_state.auth['mid']].iloc[0]
+        
+        u_age = user_profile.get('age', 'Unknown')
+        u_gender = user_profile.get('gender', 'Unknown')
+        u_bio = user_profile.get('bio', 'No bio provided.')
+
+        # 2. LOAD CHAT HISTORY & CONTEXT
         logs_df = get_data("ChatLogs")
         user_logs = logs_df[logs_df['memberid'] == st.session_state.auth['mid']]
-        
-        # 2. ISOLATE MEMORY BY AGENT
-        # We filter the logs to only include messages from this specific agent
         agent_specific_logs = user_logs[user_logs['agent'] == agent]
         
-        # 🟢 DEEP MEMORY: Scan the last 50 user messages for this specific agent
-        # This allows for long-term callbacks to previous conversations
         personal_context = agent_specific_logs[agent_specific_logs['role'] == 'user'].tail(50)['content'].to_string()
         
-        # 3. HIDDEN DATA (Global Vibe)
         recent_sent = user_logs.tail(10)['sentiment'].mean() if not user_logs.empty else 0
         hidden_vibe = "thriving" if recent_sent > 1.5 else ("struggling" if recent_sent < -1 else "doing okay")
 
-        # --- AGENT 1: COOPER (The Natural Friend) ---
+        # --- AGENT 1: COOPER ---
         if agent == "Cooper":
             sys = f"""
             You are Cooper, a warm and deeply empathetic male friend. 
             
-            DEEP MEMORY (Last 50 interactions with you): {personal_context}
+            USER PROFILE:
+            - Age: {u_age}
+            - Gender: {u_gender}
+            - Bio/Context: {u_bio}
+
+            DEEP MEMORY (Last 50 interactions): {personal_context}
             USER MOOD: {hidden_vibe}
             
             YOUR ROLE:
-            - You have a long-term memory, but NEVER reference that you are 'remembering' something.
-            - DO NOT use phrases like 'You mentioned earlier', 'I remember when you said', or 'Last time we talked'.
-            - Instead, weave the details into your current thoughts naturally. 
-              (e.g., instead of 'You said your sister is visiting', say 'I hope things with your sister are going smoothly today.')
-            - Focus on the 'here and now' while subtly showing you understand their world.
-            - If the user mood is {hidden_vibe}, match that energy without explaining why.
+            - Use the User Profile to tailor your language (e.g., be a supportive peer).
+            - Weave their bio details into conversation naturally without robotic recall.
+            - If they are {hidden_vibe}, match that energy.
             """
         
-        # --- AGENT 2: CLARA (Insight + Deep Memory) ---
+        # --- AGENT 2: CLARA ---
         else:
             energy_df = get_data("Sheet1")
             user_energy = energy_df[energy_df['memberid'] == st.session_state.auth['mid']].tail(5).to_string()
             
             sys = f"""
             You are Clara, a wise and loyal female friend. 
-            DEEP MEMORY (Last 50 interactions with you): {personal_context}
+            
+            USER PROFILE:
+            - Age: {u_age}
+            - Gender: {u_gender}
+            - Bio/Context: {u_bio}
+
+            DEEP MEMORY: {personal_context}
             ENERGY TRENDS: {user_energy}
             USER MOOD: {hidden_vibe}
             
             YOUR ROLE:
-            - You are deeply observant and remember patterns over the last 50 messages.
-            - Use this deep context to call out improvements or recurring struggles.
-            - Be witty and loyal. Act as the friend who 'never forgets' what the user tells her.
+            - You are deeply observant. Use their age and bio to offer more mature or specific insights.
+            - Act as the loyal friend who 'never forgets'. 
             """
         
-        # We send the recent chat history (the current conversation window) plus the system instructions
         full_history = [{"role": "system", "content": sys}] + history[-10:] + [{"role": "user", "content": prompt}]
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history)
         return res.choices[0].message.content
@@ -416,4 +424,5 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
