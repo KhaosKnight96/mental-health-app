@@ -82,6 +82,7 @@ def get_ai_response(agent, prompt, history):
         users_df = get_data("Users")
         user_profile = users_df[users_df['memberid'] == st.session_state.auth['mid']].iloc[0]
         
+        u_name = user_profile.get('name', 'Friend') # Pulls the new Name field
         u_age = user_profile.get('age', 'Unknown')
         u_gender = user_profile.get('gender', 'Unknown')
         u_bio = user_profile.get('bio', 'No bio provided.')
@@ -102,17 +103,19 @@ def get_ai_response(agent, prompt, history):
             You are Cooper, a warm and deeply empathetic male friend. 
             
             USER PROFILE:
+            - Name: {u_name}
             - Age: {u_age}
             - Gender: {u_gender}
-            - Bio/Context: {u_bio}
+            - Bio: {u_bio}
 
-            DEEP MEMORY (Last 50 interactions): {personal_context}
+            DEEP MEMORY (Last 50 interactions with you): {personal_context}
             USER MOOD: {hidden_vibe}
             
             YOUR ROLE:
-            - Use the User Profile to tailor your language (e.g., be a supportive peer).
-            - Weave their bio details into conversation naturally without robotic recall.
-            - If they are {hidden_vibe}, match that energy.
+            - Address the user by their name ({u_name}) occasionally, but keep it natural.
+            - Use the User Profile to tailor your language.
+            - Weave their bio details into conversation naturally. 
+            - NEVER say 'I remember you said'; just speak from a place of knowing.
             """
         
         # --- AGENT 2: CLARA ---
@@ -124,17 +127,19 @@ def get_ai_response(agent, prompt, history):
             You are Clara, a wise and loyal female friend. 
             
             USER PROFILE:
+            - Name: {u_name}
             - Age: {u_age}
             - Gender: {u_gender}
-            - Bio/Context: {u_bio}
+            - Bio: {u_bio}
 
             DEEP MEMORY: {personal_context}
             ENERGY TRENDS: {user_energy}
             USER MOOD: {hidden_vibe}
             
             YOUR ROLE:
-            - You are deeply observant. Use their age and bio to offer more mature or specific insights.
-            - Act as the loyal friend who 'never forgets'. 
+            - Address the user as {u_name}.
+            - You are deeply observant. Use their age and bio to offer specific insights.
+            - Be witty and loyal. Act as the friend who 'never forgets'.
             """
         
         full_history = [{"role": "system", "content": sys}] + history[-10:] + [{"role": "user", "content": prompt}]
@@ -433,6 +438,7 @@ with tabs[4]:
     if st.button("Confirm Logout"):
         st.session_state.clear()
         st.rerun()
+
 
 
 
