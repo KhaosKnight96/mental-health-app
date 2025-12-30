@@ -70,6 +70,7 @@ if not st.session_state.auth["in"]:
             st.session_state.auth.update({"in": True, "mid": u, "role": str(m.iloc[0]['role']).lower()})
             all_logs = get_data("ChatLogs")
             if not all_logs.empty:
+                # Filter logs specifically for the logged-in user to populate initial chat history
                 ulogs = all_logs[all_logs['memberid'].astype(str) == u].tail(50)
                 st.session_state.cooper_logs = [{"role": r.role, "content": r.content} for _,r in ulogs[ulogs.agent == "Cooper"].iterrows()]
                 st.session_state.clara_logs = [{"role": r.role, "content": r.content} for _,r in ulogs[ulogs.agent == "Clara"].iterrows()]
@@ -94,7 +95,7 @@ for i, agent in enumerate(["Cooper", "Clara"]):
             logs.append({"role": "assistant", "content": res}); save_log(agent, "assistant", res)
             st.rerun()
 
-# --- 6. ARCADE ---
+# --- 6. ARCADE (KEYBOARD + SWIPE) ---
 with tabs[2]:
     game = st.selectbox("Choose a Game", ["Snake", "Memory Match", "Simon Says"])
     
@@ -169,14 +170,16 @@ with tabs[2]:
             function tp(id){ fl(id); u.push(id); if(u[u.length-1]!==sq[u.length-1]){ alert('Over!'); sq=[]; lv=1; } else if(u.length==sq.length){ lv++; document.getElementById('stat').innerText='Level '+lv; setTimeout(nxt, 800); } }
         </script>""", height=400)
 
-# --- 7. ENHANCED ADMIN ---
+# --- 7. FIXED ADMIN ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
         st.subheader("🛡️ Advanced Log Explorer")
         l_df = get_data("ChatLogs")
         
         if not l_df.empty:
-            # Multi-Filter Sidebar-style Layout
+            # FIX: Convert timestamps safely using mixed format
+            l_df['timestamp_fixed'] = pd.to_datetime(l_df['timestamp'], format='mixed', errors='coerce')
+            
             with st.expander("🔍 Filter Controls", expanded=True):
                 c1, c2, c3, c4 = st.columns(4)
                 f_user = c1.selectbox("Member ID", ["All Users"] + list(l_df['memberid'].unique()))
@@ -184,10 +187,10 @@ with tabs[3]:
                 f_date = c3.date_input("Date Range", [date(2025, 1, 1), date.today()])
                 f_text = c4.text_input("Keyword Search")
 
-            # Apply Logic
             filt = l_df.copy()
-            filt['timestamp_dt'] = pd.to_datetime(filt['timestamp']).dt.date
+            filt['timestamp_dt'] = filt['timestamp_fixed'].dt.date
             
+            # Apply Filters
             if f_user != "All Users": filt = filt[filt['memberid'].astype(str) == str(f_user)]
             if f_agent != "All Agents": filt = filt[filt['agent'] == f_agent]
             if len(f_date) == 2:
@@ -195,13 +198,17 @@ with tabs[3]:
             if f_text: filt = filt[filt['content'].str.contains(f_text, case=False, na=False)]
 
             st.write(f"Showing {len(filt)} results")
-            st.dataframe(filt.drop(columns=['timestamp_dt']).sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
+            # Drop the helper columns before displaying
+            display_df = filt.drop(columns=['timestamp_dt', 'timestamp_fixed']).sort_values('timestamp', ascending=False)
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
 
             st.divider()
             st.warning("Data Management")
             wipe_target = st.selectbox("Purge all logs for:", ["None"] + list(l_df['memberid'].unique()))
             if st.button("🔥 Permanently Purge User Data") and wipe_target != "None":
                 new_logs = l_df[l_df['memberid'].astype(str) != str(wipe_target)]
+                # Drop helper columns before updating the sheet
+                if 'timestamp_fixed' in new_logs.columns: new_logs = new_logs.drop(columns=['timestamp_fixed'])
                 conn.update(worksheet="ChatLogs", data=new_logs)
                 st.cache_data.clear()
                 st.success(f"Logs for {wipe_target} deleted."); st.rerun()
