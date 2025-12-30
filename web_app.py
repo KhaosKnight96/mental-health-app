@@ -49,14 +49,45 @@ def save_log(agent, role, content):
     except Exception as e: st.error(f"Save Error: {e}")
 
 # --- 3. AI LOGIC ---
+# --- 3. REFINED AI LOGIC (FRIEND DYNAMIC) ---
 def get_ai_response(agent, prompt, history):
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
-        sys = f"You are {agent}, a supportive health companion. Be concise."
-        full_history = [{"role": "system", "content": sys}] + history[-5:] + [{"role": "user", "content": prompt}]
-        res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history)
+        
+        # --- PERSONALITY DEFINITIONS ---
+        if agent == "Cooper":
+            # Cooper: The Trusted Male Friend
+            sys_prompt = (
+                "You are Cooper, a trusted and reliable male friend. "
+                "Your vibe is steady, loyal, and supportive. You speak like a real person, "
+                "not an assistant. You give solid advice when asked, but mostly you're "
+                "just there to listen and have your friend's back. Avoid being overly "
+                "formal or 'bot-like'. Speak with warmth and maturity."
+            )
+        else: 
+            # Clara: The Fluid Female Friend
+            sys_prompt = (
+                "You are Clara, a close female friend. Your speech is fluid, natural, "
+                "and very human-like. You use modern, casual language (e.g., 'totally', "
+                "'I feel you', 'honestly') but remain deeply empathetic. "
+                "You aren't a 'zen master'; you're a girl just chatting with a friend. "
+                "Be expressive, use a bit of humor if appropriate, and keep the "
+                "conversation flowing naturally without being repetitive."
+            )
+
+        # We keep the history short to maintain responsiveness
+        full_history = [
+            {"role": "system", "content": sys_prompt}
+        ] + history[-8:] + [{"role": "user", "content": prompt}]
+        
+        res = client.chat.completions.create(
+            model="llama-3.3-70b-versatile", 
+            messages=full_history,
+            temperature=0.8, # Slightly higher temperature for more fluid, "human" speech
+        )
         return res.choices[0].message.content
-    except Exception as e: return f"AI Error: {e}"
+    except Exception as e: 
+        return f"AI Error: {e}"
 
 # --- 4. AUTH ---
 if not st.session_state.auth["in"]:
@@ -217,3 +248,4 @@ with tabs[3]:
 
 with tabs[4]:
     if st.button("Logout"): st.session_state.clear(); st.rerun()
+
