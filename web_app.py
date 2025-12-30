@@ -9,8 +9,8 @@ st.set_page_config(page_title="Health Bridge Pro", layout="wide", initial_sideba
 
 if "auth" not in st.session_state: 
     st.session_state.auth = {"in": False, "mid": None, "role": "user", "name": "", "bio": "", "age": ""}
-if "selected_search_id" not in st.session_state:
-    st.session_state.selected_search_id = None
+if "view_mid" not in st.session_state:
+    st.session_state.view_mid = None  # Track which profile we are currently viewing
 
 st.markdown("""
 <style>
@@ -21,7 +21,6 @@ st.markdown("""
     .direct-bubble { background: #065F46; color: white; margin-right: auto; border-bottom-left-radius: 2px; border-left: 4px solid #10B981; }
     .feed-card { background: #1E293B; padding: 15px; border-radius: 15px; border: 1px solid #334155; margin-bottom: 10px; }
     .avatar-pulse { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 30px; margin: 0 auto 10px; background: linear-gradient(135deg, #38BDF8, #6366F1); }
-    .game-container { touch-action: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -56,7 +55,7 @@ def save_log(agent, role, content):
 def get_ai_response(agent, prompt, history):
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
-        sys = f"You are {agent}. You are a genuinely helpful and empathetic partner."
+        sys = f"You are {agent}. Be empathetic and helpful."
         full_history = [{"role": "system", "content": sys}] + history[-5:] + [{"role": "user", "content": prompt}]
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history, temperature=0.8)
         return res.choices[0].message.content
@@ -86,7 +85,7 @@ if not st.session_state.auth["in"]:
 # --- 5. INTERFACE ---
 tabs = st.tabs(["👤 Profile", "🤝 Cooper", "✨ Clara", "👥 Friends", "📩 Messages", "🎮 Arcade", "🛠️ Admin", "🚪 Logout"])
 
-# --- TAB 0: PROFILE ---
+# --- TAB 0: PERSONAL PROFILE ---
 with tabs[0]:
     c1, c2 = st.columns([1, 2])
     with c1:
@@ -95,82 +94,91 @@ with tabs[0]:
         st.write(f"**ID:** {st.session_state.auth['mid']}")
         st.info(f"**Bio:** {st.session_state.auth['bio']}")
     with c2:
-        st.subheader("📢 Community Feed")
-        post = st.text_area("Post a public update...", label_visibility="collapsed")
+        st.subheader("📢 My Timeline")
+        post = st.text_area("Post to your timeline...", label_visibility="collapsed")
         if st.button("Post"):
             if post: save_log("Feed", "user", post); st.rerun()
         l_df = get_data("ChatLogs")
         if not l_df.empty:
-            feed = l_df[l_df['agent'] == "Feed"].sort_values('timestamp', ascending=False).head(5)
-            for _, p in feed.iterrows():
-                st.markdown(f'<div class="feed-card"><b>@{p["memberid"]}</b><br><small>{p["timestamp"]}</small><p>{p["content"]}</p></div>', unsafe_allow_html=True)
+            my_feed = l_df[(l_df['agent'] == "Feed") & (l_df['memberid'] == st.session_state.auth['mid'])].sort_values('timestamp', ascending=False).head(10)
+            for _, p in my_feed.iterrows():
+                st.markdown(f'<div class="feed-card"><small>{p["timestamp"]}</small><p>{p["content"]}</p></div>', unsafe_allow_html=True)
 
-# --- TAB 3: FRIENDS (REFINED) ---
+# --- TAB 3: FRIENDS & EXTERNAL PROFILES ---
 with tabs[3]:
-    f_df, u_df = get_data("Friends"), get_data("Users")
+    f_df, u_df, l_df = get_data("Friends"), get_data("Users"), get_data("ChatLogs")
     
-    # Identify Accepted Friends
+    # 1. Logic for viewing a specific profile
+    if st.session_state.view_mid:
+        if st.button("← Back to Friends List"):
+            st.session_state.view_mid = None
+            st.rerun()
+        
+        target_u = u_df[u_df['memberid'].astype(str).str.lower() == st.session_state.view_mid]
+        if not target_u.empty:
+            t = target_u.iloc[0]
+            st.markdown(f"## 👤 {t['name']}'s Profile")
+            col_x, col_y = st.columns([1, 2])
+            with col_x:
+                st.info(f"**Bio:** {t.get('bio', 'No bio.')}")
+                st.write(f"**Member ID:** @{t['memberid']}")
+                
+                # Friend Request Button in Profile View
+                status_check = f_df[((f_df['sender'] == st.session_state.auth['mid']) & (f_df['receiver'] == st.session_state.view_mid)) | 
+                                    ((f_df['receiver'] == st.session_state.auth['mid']) & (f_df['sender'] == st.session_state.view_mid))]
+                if status_check.empty:
+                    if st.button("➕ Add Friend", use_container_width=True):
+                        save_to_sheet("Friends", pd.DataFrame([{"sender": st.session_state.auth['mid'], "receiver": st.session_state.view_mid, "status": "pending"}]))
+                        st.success("Request Sent!")
+                else:
+                    st.info(f"Status: {status_check.iloc[0]['status'].capitalize()}")
+
+            with col_y:
+                st.subheader("📜 User Feed")
+                u_feed = l_df[(l_df['agent'] == "Feed") & (l_df['memberid'] == st.session_state.view_mid)].sort_values('timestamp', ascending=False)
+                if not u_feed.empty:
+                    for _, p in u_feed.iterrows():
+                        st.markdown(f'<div class="feed-card"><small>{p["timestamp"]}</small><p>{p["content"]}</p></div>', unsafe_allow_html=True)
+                else: st.write("This user hasn't posted anything yet.")
+        else: st.error("User not found.")
+        st.stop()
+
+    # 2. Default Friends View
     f1 = f_df[(f_df['sender'] == st.session_state.auth['mid']) & (f_df['status'] == "accepted")]['receiver'].tolist()
     f2 = f_df[(f_df['receiver'] == st.session_state.auth['mid']) & (f_df['status'] == "accepted")]['sender'].tolist()
     accepted_friends = list(set(f1 + f2))
 
-    col_a, col_b = st.columns(2)
-    
-    with col_a:
-        st.subheader("🔍 Search People")
-        sq = st.text_input("Enter Name or Member ID:").strip().lower()
+    c_left, c_right = st.columns(2)
+    with c_left:
+        st.subheader("🔍 Find People")
+        sq = st.text_input("Search ID or Name:").strip().lower()
         if sq:
             res = u_df[(u_df['name'].str.contains(sq, case=False, na=False)) | (u_df['memberid'].astype(str).str.lower() == sq)]
             res = res[res['memberid'].astype(str).str.lower() != st.session_state.auth['mid']]
-            if not res.empty:
-                for _, r in res.iterrows():
-                    if st.button(f"📄 Preview Profile: {r['name']}", key=f"v_{r['memberid']}"):
-                        st.session_state.selected_search_id = str(r['memberid'])
-            else: st.warning("No users found.")
-        
-        if st.session_state.selected_search_id:
-            with st.container(border=True):
-                target_df = u_df[u_df['memberid'].astype(str).str.lower() == st.session_state.selected_search_id]
-                if not target_df.empty:
-                    target = target_df.iloc[0]
-                    st.write(f"### Profile Preview: {target['name']}")
-                    st.write(f"**Member ID:** @{target['memberid']}")
-                    st.write(f"**Bio:** {target.get('bio', 'No bio provided.')}")
-                    
-                    # Check connection status
-                    conn_status = f_df[((f_df['sender'] == st.session_state.auth['mid']) & (f_df['receiver'] == st.session_state.selected_search_id)) | 
-                                       ((f_df['receiver'] == st.session_state.auth['mid']) & (f_df['sender'] == st.session_state.selected_search_id))]
-                    
-                    if conn_status.empty:
-                        if st.button("🤝 Send Friend Request", use_container_width=True):
-                            save_to_sheet("Friends", pd.DataFrame([{"sender": st.session_state.auth['mid'], "receiver": st.session_state.selected_search_id, "status": "pending"}]))
-                            st.success("Request Sent!"); st.rerun()
-                    else:
-                        st.info(f"Connection Status: {conn_status.iloc[0]['status'].capitalize()}")
-                
-                if st.button("Close Preview"): 
-                    st.session_state.selected_search_id = None
+            for _, r in res.iterrows():
+                if st.button(f"📄 Preview @{r['memberid']}", key=f"p_{r['memberid']}"):
+                    st.session_state.view_mid = str(r['memberid'])
                     st.rerun()
 
-    with col_b:
+    with c_right:
         st.subheader("✅ My Friends")
         if accepted_friends:
-            for friend_id in accepted_friends:
-                st.markdown(f'<div class="feed-card">👤 <b>{friend_id}</b></div>', unsafe_allow_html=True)
-        else: st.write("No accepted friends yet.")
-        
-        st.subheader("📥 Incoming Requests")
+            for f_id in accepted_friends:
+                if st.button(f"👤 {f_id}", key=f"f_{f_id}", use_container_width=True):
+                    st.session_state.view_mid = f_id
+                    st.rerun()
+        else: st.write("No friends yet.")
+
+        st.subheader("📥 Requests")
         inbound = f_df[(f_df['receiver'] == st.session_state.auth['mid']) & (f_df['status'] == "pending")]
-        if not inbound.empty:
-            for _, r in inbound.iterrows():
-                if st.button(f"✅ Accept {r['sender']}", key=f"acc_{r['sender']}"):
-                    f_df.loc[(f_df['sender'] == r['sender']) & (f_df['receiver'] == st.session_state.auth['mid']), 'status'] = "accepted"
-                    conn.update(worksheet="Friends", data=f_df); st.rerun()
-        else: st.write("No pending requests.")
+        for _, r in inbound.iterrows():
+            if st.button(f"✅ Accept {r['sender']}", key=f"acc_{r['sender']}"):
+                f_df.loc[(f_df['sender'] == r['sender']) & (f_df['receiver'] == st.session_state.auth['mid']), 'status'] = "accepted"
+                conn.update(worksheet="Friends", data=f_df); st.rerun()
 
 # --- TAB 4: DIRECT MESSAGES ---
 with tabs[4]:
-    st.subheader("📩 Messages")
+    st.subheader("📩 Direct Messages")
     f_df, l_df = get_data("Friends"), get_data("ChatLogs")
     f1 = f_df[(f_df['sender'] == st.session_state.auth['mid']) & (f_df['status'] == "accepted")]['receiver'].tolist()
     f2 = f_df[(f_df['receiver'] == st.session_state.auth['mid']) & (f_df['status'] == "accepted")]['sender'].tolist()
@@ -187,72 +195,55 @@ with tabs[4]:
             save_log(f"DM:{sel}", "user", msg); st.rerun()
     else: st.info("Messaging is unlocked once you have accepted friends.")
 
-# --- TAB 5: ARCADE (HYBRID INPUTS) ---
+# --- TAB 5: ARCADE (SNAKE/MEMORY/SIMON) ---
 with tabs[5]:
-    gm = st.radio("Game", ["Snake", "Memory", "Simon Says"], horizontal=True)
+    gm = st.radio("Library", ["Snake", "Memory", "Simon Says"], horizontal=True)
     if gm == "Snake":
         st.components.v1.html("""
-        <div class="game-container" style="text-align:center; background:#1E293B; padding:15px; border-radius:20px;">
-            <div id="scr" style="color:#38BDF8; font-size:20px; font-weight:bold;">Score: 0</div>
-            <canvas id="snk" width="300" height="300" style="background:#0F172A; border:3px solid #334155; border-radius:10px; margin-top:10px;"></canvas>
-            <div style="margin-top:10px; font-size:12px; color:#94A3B8;">ARROWS / WASD / SWIPE</div>
+        <div style="text-align:center; background:#1E293B; padding:15px; border-radius:20px;">
+            <div id="scr" style="color:#38BDF8; font-size:20px;">Score: 0</div>
+            <canvas id="snk" width="300" height="300" style="background:#0F172A; border:3px solid #334155; margin-top:10px;"></canvas>
         </div>
         <script>
             const c=document.getElementById('snk'), x=c.getContext('2d');
             let sn=[{x:150,y:150}], f={x:75,y:75}, d='R', sc=0, tsX=null, tsY=null;
-            window.onkeydown=e=>{ 
-                let k=e.key.toLowerCase();
-                if(k=='arrowleft'||k=='a') d='L'; if(k=='arrowright'||k=='d') d='R';
-                if(k=='arrowup'||k=='w') d='U'; if(k=='arrowdown'||k=='s') d='D';
-            };
+            window.onkeydown=e=>{ let k=e.key.toLowerCase(); if(k=='arrowleft'||k=='a') d='L'; if(k=='arrowright'||k=='d') d='R'; if(k=='arrowup'||k=='w') d='U'; if(k=='arrowdown'||k=='s') d='D'; };
             c.addEventListener('touchstart', e=>{ tsX=e.touches[0].clientX; tsY=e.touches[0].clientY; });
-            c.addEventListener('touchmove', e=>{
-                if(!tsX||!tsY) return;
-                let dx=tsX-e.touches[0].clientX, dy=tsY-e.touches[0].clientY;
-                if(Math.abs(dx)>Math.abs(dy)) d=dx>0?'L':'R'; else d=dy>0?'U':'D';
-                tsX=null; tsY=null; e.preventDefault();
-            }, {passive:false});
+            c.addEventListener('touchmove', e=>{ if(!tsX||!tsY) return; let dx=tsX-e.touches[0].clientX, dy=tsY-e.touches[0].clientY; if(Math.abs(dx)>Math.abs(dy)) d=dx>0?'L':'R'; else d=dy>0?'U':'D'; tsX=null; tsY=null; e.preventDefault(); }, {passive:false});
             setInterval(()=>{
                 x.fillStyle='#0F172A'; x.fillRect(0,0,300,300); x.fillStyle='#F87171'; x.fillRect(f.x,f.y,15,15);
                 x.fillStyle='#38BDF8'; sn.forEach(p=>x.fillRect(p.x,p.y,15,15));
-                let h={...sn[0]};
-                if(d=='L')h.x-=15; if(d=='R')h.x+=15; if(d=='U')h.y-=15; if(d=='D')h.y+=15;
+                let h={...sn[0]}; if(d=='L')h.x-=15; if(d=='R')h.x+=15; if(d=='U')h.y-=15; if(d=='D')h.y+=15;
                 if(h.x==f.x&&h.y==f.y){sc++; f={x:Math.floor(Math.random()*19)*15,y:Math.floor(Math.random()*19)*15}} else sn.pop();
                 if(h.x<0||h.x>=300||h.y<0||h.y>=300||sn.some(s=>s.x==h.x&&s.y==h.y)){sn=[{x:150,y:150}]; sc=0; d='R';}
                 sn.unshift(h); document.getElementById('scr').innerText="Score: "+sc;
             }, 130);
         </script>
-        """, height=420)
+        """, height=400)
     elif gm == "Memory":
         st.components.v1.html("""
-        <div class="game-container" style="text-align:center; background:#1E293B; padding:15px; border-radius:15px;">
+        <div style="text-align:center; background:#1E293B; padding:15px; border-radius:15px;">
             <div id="msg" style="color:#38BDF8; font-size:18px;">Memory</div>
             <div id="grid" style="display:grid; gap:8px; margin:auto; max-width:320px; margin-top:10px;"></div>
         </div>
         <script>
             let cards=[], flipped=[], matched=0; const icons=['❤️','⭐','🍀','💎','🎈','🎨','⚡','🔥','🍄','🌈'];
             function start(n){
-                matched=0; flipped=[]; const g=document.getElementById('grid'); g.innerHTML='';
-                g.style.gridTemplateColumns=`repeat(${n}, 1fr)`;
-                document.getElementById('msg').innerText=`Level ${n/2}`;
+                matched=0; flipped=[]; const g=document.getElementById('grid'); g.innerHTML=''; g.style.gridTemplateColumns=`repeat(${n}, 1fr)`;
                 let count=(n*n)/2; let items=[...icons.slice(0,count), ...icons.slice(0,count)].sort(()=>Math.random()-0.5);
                 items.forEach(icon=>{
-                    let c=document.createElement('div');
-                    c.style="height:65px; background:#334155; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer;";
+                    let c=document.createElement('div'); c.style="height:65px; background:#334155; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer;";
                     c.onclick=()=>{ if(flipped.length<2 && c.innerText==''){
                         c.innerText=icon; flipped.push({c,icon});
-                        if(flipped.length==2){
-                            if(flipped[0].icon==flipped[1].icon){ matched++; flipped=[]; if(matched==(n*n)/2) setTimeout(()=>start(n+2),600); }
-                            else { setTimeout(()=>{ flipped.forEach(f=>f.c.innerText=''); flipped=[]; }, 500); }
-                        }
-                    }}; g.appendChild(c);
+                        if(flipped.length==2){ if(flipped[0].icon==flipped[1].icon){ matched++; flipped=[]; if(matched==(n*n)/2) setTimeout(()=>start(n+2),600); }
+                        else { setTimeout(()=>{ flipped.forEach(f=>f.c.innerText=''); flipped=[]; }, 500); } } }}; g.appendChild(c);
                 });
             } start(2);
         </script>
         """, height=450)
     else:
         st.components.v1.html("""
-        <div class="game-container" style="text-align:center; background:#1E293B; padding:20px; border-radius:15px;">
+        <div style="text-align:center; background:#1E293B; padding:20px; border-radius:15px;">
             <div id="stat" style="color:white; font-size:20px; margin-bottom:15px;">Level 1</div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; max-width:240px; margin:auto;">
                 <div id="0" onclick="tp(0)" style="height:100px; background:#EF4444; opacity:0.3; border-radius:10px; cursor:pointer;"></div>
@@ -260,16 +251,14 @@ with tabs[5]:
                 <div id="2" onclick="tp(2)" style="height:100px; background:#EAB308; opacity:0.3; border-radius:10px; cursor:pointer;"></div>
                 <div id="3" onclick="tp(3)" style="height:100px; background:#22C55E; opacity:0.3; border-radius:10px; cursor:pointer;"></div>
             </div>
-            <button onclick="sq=[];lv=1;nxt()" style="margin-top:20px; width:100%; padding:15px; background:#38BDF8; color:white; border-radius:10px; cursor:pointer; font-weight:bold; border:none;">START GAME</button>
-            <div style="margin-top:10px; font-size:12px; color:#94A3B8;">KEYS 1, 2, 3, 4 Supported</div>
+            <button onclick="sq=[];lv=1;nxt()" style="margin-top:20px; width:100%; padding:15px; background:#38BDF8; color:white; border-radius:10px; border:none; cursor:pointer; font-weight:bold;">START</button>
         </div>
         <script>
-            let sq=[], u=[], lv=1; 
-            window.onkeydown=e=>{ if(['1','2','3','4'].includes(e.key)) tp(parseInt(e.key)-1); };
+            let sq=[], u=[], lv=1; window.onkeydown=e=>{ if(['1','2','3','4'].includes(e.key)) tp(parseInt(e.key)-1); };
             function nxt(){ u=[]; sq.push(Math.floor(Math.random()*4)); ply(); }
             function ply(){ let i=0; let t=setInterval(()=>{ fl(sq[i]); i++; if(i>=sq.length)clearInterval(t); }, 600); }
             function fl(id){ let e=document.getElementById(id); e.style.opacity='1'; setTimeout(()=>e.style.opacity='0.3', 300); }
-            function tp(id){ fl(id); u.push(id); if(u[u.length-1]!==sq[u.length-1]){ alert('Wrong Move!'); sq=[]; lv=1; document.getElementById('stat').innerText='Level 1'; } 
+            function tp(id){ fl(id); u.push(id); if(u[u.length-1]!==sq[u.length-1]){ alert('Game Over!'); sq=[]; lv=1; document.getElementById('stat').innerText='Level 1'; } 
             else if(u.length==sq.length){ lv++; document.getElementById('stat').innerText='Level '+lv; setTimeout(nxt, 800); } }
         </script>
         """, height=480)
@@ -277,7 +266,7 @@ with tabs[5]:
 # --- TAB 6: ADMIN ---
 with tabs[6]:
     if st.session_state.auth["role"] == "admin":
-        st.subheader("🛡️ Activity Explorer")
+        st.subheader("🛡️ Admin Logs")
         all_l = get_data("ChatLogs")
         if not all_l.empty:
             all_l['dt'] = pd.to_datetime(all_l['timestamp'], format='mixed')
