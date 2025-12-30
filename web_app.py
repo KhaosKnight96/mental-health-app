@@ -53,7 +53,7 @@ def get_ai_response(agent, prompt, history):
         if agent == "Cooper":
             sys = "You are Cooper, a trusted male friend. Steady and loyal. Speak like a real human friend."
         else:
-            sys = "You are Clara, a close female friend. Use casual, fluid, human speech (honestly, I feel you). Be empathetic."
+            sys = "You are Clara, a close female friend. Use casual, fluid, human speech. Be empathetic."
         full_history = [{"role": "system", "content": sys}] + history[-5:] + [{"role": "user", "content": prompt}]
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history, temperature=0.8)
         return res.choices[0].message.content
@@ -89,7 +89,6 @@ with tabs[0]:
         st.caption(f"Member ID: {st.session_state.auth['mid']}")
         st.write(f"**Age:** {st.session_state.auth['age']}")
         st.write(f"**Bio:** {st.session_state.auth['bio']}")
-        
         with st.expander("📝 Edit Profile"):
             new_name = st.text_input("Display Name", value=st.session_state.auth['name'])
             new_age = st.text_input("Age", value=st.session_state.auth['age'])
@@ -102,25 +101,22 @@ with tabs[0]:
                 users.loc[idx, 'bio'] = new_bio
                 conn.update(worksheet="Users", data=users)
                 st.session_state.auth.update({"name": new_name, "age": new_age, "bio": new_bio})
-                st.cache_data.clear()
-                st.success("Profile Updated!"); st.rerun()
+                st.cache_data.clear(); st.success("Profile Updated!"); st.rerun()
         st.divider()
         st.write("📅 Joined: 2025")
-    
     with c2:
         st.subheader("📢 Community Feed")
         with st.expander("Write a Post"):
             post_txt = st.text_area("What's on your mind?")
             if st.button("Post"):
                 if post_txt: save_log("Feed", "user", post_txt); st.rerun()
-
         all_logs = get_data("ChatLogs")
         if not all_logs.empty:
             feed = all_logs[all_logs['agent'] == "Feed"].sort_values('timestamp', ascending=False).head(15)
             for _, post in feed.iterrows():
                 st.markdown(f'<div class="feed-card"><div style="color:#38BDF8; font-weight:bold;">@{post["memberid"]}</div><div style="font-size:11px; opacity:0.6;">{post["timestamp"]}</div><div style="margin-top:8px;">{post["content"]}</div></div>', unsafe_allow_html=True)
 
-# --- AI CHATS ---
+# --- AI CHATS (COOPER & CLARA) ---
 for i, agent in enumerate(["Cooper", "Clara"]):
     with tabs[i+1]:
         st.markdown(f'<div class="avatar-pulse">{"🤝" if agent=="Cooper" else "✨"}</div>', unsafe_allow_html=True)
@@ -133,8 +129,7 @@ for i, agent in enumerate(["Cooper", "Clara"]):
                 st.markdown(f'<div class="chat-bubble {style}">{r["content"]}</div>', unsafe_allow_html=True)
         if p := st.chat_input(f"Talk to {agent}...", key=f"ai_{agent}"):
             save_log(agent, "user", p)
-            history = [{"role": r.role, "content": r.content} for _, r in ulogs.iterrows()]
-            res = get_ai_response(agent, p, history)
+            res = get_ai_response(agent, p, [{"role": r.role, "content": r.content} for _, r in ulogs.iterrows()])
             save_log(agent, "assistant", res); st.rerun()
 
 # --- MESSAGES ---
@@ -146,8 +141,7 @@ with tabs[3]:
     sent = all_logs[(all_logs['memberid'] == st.session_state.auth['mid']) & (all_logs['agent'] == f"Direct:{sel_f}")]
     received = all_logs[(all_logs['memberid'] == sel_f) & (all_logs['agent'] == f"Direct:{st.session_state.auth['mid']}")]
     chain = pd.concat([sent, received]).sort_values('timestamp')
-    m_box = st.container(height=350, border=True)
-    with m_box:
+    with st.container(height=350, border=True):
         for _, m in chain.iterrows():
             style = "user-bubble" if m['memberid'] == st.session_state.auth['mid'] else "direct-bubble"
             st.markdown(f'<div class="chat-bubble {style}">{m["content"]}</div>', unsafe_allow_html=True)
@@ -164,17 +158,43 @@ with tabs[4]:
     elif game == "Simon Says":
         st.components.v1.html("""<div style="text-align:center; background:#1E293B; padding:20px; border-radius:15px;"><div id="stat" style="color:white; margin-bottom:15px;">Level 1</div><div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; max-width:240px; margin:auto;"><div id="0" onclick="tp(0)" style="height:80px; background:#EF4444; opacity:0.3; border-radius:10px;"></div><div id="1" onclick="tp(1)" style="height:80px; background:#3B82F6; opacity:0.3; border-radius:10px;"></div><div id="2" onclick="tp(2)" style="height:80px; background:#EAB308; opacity:0.3; border-radius:10px;"></div><div id="3" onclick="tp(3)" style="height:80px; background:#22C55E; opacity:0.3; border-radius:10px;"></div></div><button onclick="sq=[];nxt()" style="margin-top:15px; width:100%; padding:10px; background:#38BDF8; color:white; border:none; border-radius:8px;">START</button></div><script>let sq=[], u=[], lv=1; function nxt(){ u=[]; sq.push(Math.floor(Math.random()*4)); ply(); } function ply(){ let i=0; let t=setInterval(()=>{ fl(sq[i]); i++; if(i>=sq.length)clearInterval(t); }, 600); } function fl(id){ let e=document.getElementById(id); e.style.opacity='1'; setTimeout(()=>e.style.opacity='0.3', 300); } function tp(id){ fl(id); u.push(id); if(u[u.length-1]!==sq[u.length-1]){ alert('Over!'); sq=[]; lv=1; } else if(u.length==sq.length){ lv++; document.getElementById('stat').innerText='Level '+lv; setTimeout(nxt, 800); } }</script>""", height=400)
 
-# --- ADMIN ---
+# --- 6. ADMIN (RE-ADDED SEARCH & DATE FILTERS) ---
 with tabs[5]:
     if st.session_state.auth["role"] == "admin":
-        st.subheader("🛡️ Admin Log")
+        st.subheader("🛡️ Advanced Log Explorer")
         l_df = get_data("ChatLogs")
+        
         if not l_df.empty:
-            st.dataframe(l_df.sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
+            # Convert timestamp for range filtering
+            l_df['dt'] = pd.to_datetime(l_df['timestamp'], errors='coerce')
+            
+            with st.expander("🔍 Search & Date Filters", expanded=True):
+                c1, c2 = st.columns(2)
+                f_u = c1.selectbox("Filter User", ["All"] + list(l_df['memberid'].unique()))
+                f_a = c2.selectbox("Filter Agent", ["All", "Cooper", "Clara", "Direct", "Feed"])
+                
+                f_q = st.text_input("Keyword Search")
+                
+                # Time Range Filter
+                min_date = l_df['dt'].min().date() if not l_df['dt'].dropna().empty else date.today()
+                max_date = date.today()
+                date_range = st.date_input("Select Date Range", value=(min_date, max_date))
+            
+            # Apply Filters
+            filt = l_df.copy()
+            if f_u != "All": filt = filt[filt['memberid'].astype(str) == str(f_u)]
+            if f_a != "All": filt = filt[filt['agent'].str.contains(f_a, case=False)]
+            if f_q: filt = filt[filt['content'].str.contains(f_q, case=False)]
+            if len(date_range) == 2:
+                filt = filt[(filt['dt'].dt.date >= date_range[0]) & (filt['dt'].dt.date <= date_range[1])]
+            
+            st.write(f"Showing {len(filt)} matching records")
+            st.dataframe(filt.drop(columns=['dt']).sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
+            
             st.divider()
             target = st.selectbox("Wipe User History:", ["None"] + list(l_df['memberid'].unique()))
             if st.button("Delete History") and target != "None":
-                new = l_df[l_df['memberid'].astype(str) != str(target)]
+                new = l_df[l_df['memberid'].astype(str) != str(target)].drop(columns=['dt'])
                 conn.update(worksheet="ChatLogs", data=new); st.cache_data.clear(); st.rerun()
     else: st.error("Admin Only")
 
