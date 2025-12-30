@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from groq import Groq
 from streamlit_gsheets import GSheetsConnection
-from datetime import datetime
+from datetime import datetime, date
 
 # --- 1. SETTINGS & SESSION ---
 st.set_page_config(page_title="Health Bridge Pro", layout="wide", initial_sidebar_state="collapsed")
@@ -20,10 +20,8 @@ st.markdown("""
     .chat-bubble { padding: 12px 18px; border-radius: 18px; margin-bottom: 10px; max-width: 85%; line-height: 1.5; }
     .user-bubble { background: #1E40AF; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
     .ai-bubble { background: #334155; color: white; margin-right: auto; border-bottom-left-radius: 2px; }
-    .admin-bubble { background: #7F1D1D; color: #FEE2E2; margin: 15px auto; border: 2px solid #EF4444; text-align: center; font-weight: bold; border-radius: 10px; padding: 15px; }
     .avatar-pulse { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 30px; margin: 0 auto 10px; background: linear-gradient(135deg, #38BDF8, #6366F1); box-shadow: 0 0 15px rgba(56, 189, 248, 0.4); }
-    /* Mobile optimization for games */
-    iframe { border-radius: 15px; }
+    canvas { touch-action: none; border-radius: 15px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -38,13 +36,12 @@ def get_data(ws):
         return df
     except: return pd.DataFrame()
 
-def save_log(agent, role, content, target_mid=None, is_admin_alert=False):
+def save_log(agent, role, content):
     try:
-        mid = target_mid if is_admin_alert else st.session_state.auth['mid']
         new_row = pd.DataFrame([{
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "memberid": mid, "agent": agent, "role": "admin_alert" if is_admin_alert else role,
-            "content": content, "sentiment": 0
+            "memberid": st.session_state.auth['mid'], "agent": agent, "role": role,
+            "content": content
         }])
         all_logs = conn.read(worksheet="ChatLogs", ttl=0)
         conn.update(worksheet="ChatLogs", data=pd.concat([all_logs, new_row], ignore_index=True))
@@ -55,8 +52,8 @@ def save_log(agent, role, content, target_mid=None, is_admin_alert=False):
 def get_ai_response(agent, prompt, history):
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
-        sys = f"You are {agent}, a supportive health companion. Be concise and empathetic."
-        full_history = [{"role": "system", "content": sys}] + history[-10:] + [{"role": "user", "content": prompt}]
+        sys = f"You are {agent}, a supportive health companion. Be concise."
+        full_history = [{"role": "system", "content": sys}] + history[-5:] + [{"role": "user", "content": prompt}]
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history)
         return res.choices[0].message.content
     except Exception as e: return f"AI Error: {e}"
@@ -80,154 +77,136 @@ if not st.session_state.auth["in"]:
     st.stop()
 
 # --- 5. INTERFACE ---
-tabs = st.tabs(["🏠 Cooper", "🛋️ Clara", "🎮 Arcade", "🛡️ Admin", "🚪 Logout"])
+tabs = st.tabs(["🤝 Cooper", "🧘 Clara", "🎮 Arcade", "🛠️ Admin", "🚪 Logout"])
 
-# --- CHAT ROOMS ---
 for i, agent in enumerate(["Cooper", "Clara"]):
     with tabs[i]:
-        st.markdown(f'<div class="avatar-pulse">{"🤝" if agent=="Cooper" else "📊"}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="avatar-pulse">{"🤝" if agent=="Cooper" else "🧘"}</div>', unsafe_allow_html=True)
         logs = st.session_state.cooper_logs if agent == "Cooper" else st.session_state.clara_logs
         chat_box = st.container(height=450, border=False)
         with chat_box:
             for m in logs:
-                div = "user-bubble" if m["role"] == "user" else ("admin-bubble" if m["role"] == "admin_alert" else "ai-bubble")
+                div = "user-bubble" if m["role"] == "user" else "ai-bubble"
                 st.markdown(f'<div class="chat-bubble {div}">{m["content"]}</div>', unsafe_allow_html=True)
         if p := st.chat_input(f"Message {agent}...", key=f"chat_{agent}"):
-            logs.append({"role": "user", "content": p})
-            save_log(agent, "user", p)
+            logs.append({"role": "user", "content": p}); save_log(agent, "user", p)
             res = get_ai_response(agent, p, logs)
-            logs.append({"role": "assistant", "content": res})
-            save_log(agent, "assistant", res)
+            logs.append({"role": "assistant", "content": res}); save_log(agent, "assistant", res)
             st.rerun()
 
-# --- ARCADE (MOBILE + PC COMPATIBLE) ---
+# --- 6. ARCADE ---
 with tabs[2]:
-    game = st.selectbox("Choose a Game", ["Snake (with D-Pad)", "Memory Match", "Flash Pattern (Simon Says)"])
+    game = st.selectbox("Choose a Game", ["Snake", "Memory Match", "Simon Says"])
     
-    if game == "Snake (with D-Pad)":
+    if game == "Snake":
         st.components.v1.html("""
         <div style="text-align:center; background:#1E293B; color:white; padding:15px; border-radius:20px; font-family:sans-serif;">
-            <div id="score">Score: 0</div>
-            <canvas id="game" width="300" height="300" style="border:3px solid #38BDF8; background:#0F172A; margin:10px auto; display:block; touch-action:none;"></canvas>
-            <div style="display:grid; grid-template-columns: repeat(3, 60px); gap:10px; justify-content:center; margin-top:10px;">
-                <button onclick="changeDir('U')" style="grid-column:2; height:50px; border-radius:10px; border:none; background:#38BDF8; color:white;">▲</button>
-                <button onclick="changeDir('L')" style="grid-column:1; height:50px; border-radius:10px; border:none; background:#38BDF8; color:white;">◀</button>
-                <button onclick="changeDir('D')" style="grid-column:2; height:50px; border-radius:10px; border:none; background:#38BDF8; color:white;">▼</button>
-                <button onclick="changeDir('R')" style="grid-column:3; height:50px; border-radius:10px; border:none; background:#38BDF8; color:white;">▶</button>
-            </div>
+            <div id="scr">Score: 0</div>
+            <canvas id="snk" width="300" height="300" style="background:#0F172A; border:2px solid #38BDF8; margin:10px auto; display:block;"></canvas>
         </div>
         <script>
-            const canvas=document.getElementById('game'), ctx=canvas.getContext('2d');
-            let snake=[{x:150,y:150}], food={x:75,y:75}, d='R', score=0;
-            function changeDir(newD){ if(newD=='U'&&d!='D')d='U'; if(newD=='D'&&d!='U')d='D'; if(newD=='L'&&d!='R')d='L'; if(newD=='R'&&d!='L')d='R'; }
-            window.onkeydown=e=>{ if(e.key=='ArrowUp')changeDir('U'); if(e.key=='ArrowDown')changeDir('D'); if(e.key=='ArrowLeft')changeDir('L'); if(e.key=='ArrowRight')changeDir('R'); };
+            const c=document.getElementById('snk'), x=c.getContext('2d');
+            let sn=[{x:150,y:150}], f={x:75,y:75}, d='R', sc=0, sx, sy;
+            window.onkeydown=e=>{
+                if(e.key=='ArrowUp'&&d!='D')d='U'; if(e.key=='ArrowDown'&&d!='U')d='D';
+                if(e.key=='ArrowLeft'&&d!='R')d='L'; if(e.key=='ArrowRight'&&d!='L')d='R';
+            };
+            c.addEventListener('touchstart', e=>{sx=e.touches[0].clientX; sy=e.touches[0].clientY;}, false);
+            c.addEventListener('touchend', e=>{
+                let dx=e.changedTouches[0].clientX-sx, dy=e.changedTouches[0].clientY-sy;
+                if(Math.abs(dx)>Math.abs(dy)){ if(dx>30&&d!='L')d='R'; else if(dx<-30&&d!='R')d='L'; }
+                else { if(dy>30&&d!='U')d='D'; else if(dy<-30&&d!='D')d='U'; }
+            }, false);
             setInterval(()=>{
-                ctx.fillStyle='#0F172A'; ctx.fillRect(0,0,300,300);
-                ctx.fillStyle='#F87171'; ctx.fillRect(food.x,food.y,15,15);
-                ctx.fillStyle='#38BDF8'; snake.forEach(p=>ctx.fillRect(p.x,p.y,15,15));
-                let h={...snake[0]}; if(d=='L')h.x-=15; if(d=='U')h.y-=15; if(d=='R')h.x+=15; if(d=='D')h.y+=15;
-                if(h.x==food.x&&h.y==food.y){score++; food={x:Math.floor(Math.random()*20)*15,y:Math.floor(Math.random()*20)*15}} else snake.pop();
-                if(h.x<0||h.x>=300||h.y<0||h.y>=300) { snake=[{x:150,y:150}]; score=0; d='R'; } // Wall death reset
-                snake.unshift(h); document.getElementById('score').innerText="Score: "+score;
-            }, 120);
-        </script>
-        """, height=550)
+                x.fillStyle='#0F172A'; x.fillRect(0,0,300,300); x.fillStyle='#F87171'; x.fillRect(f.x,f.y,15,15);
+                x.fillStyle='#38BDF8'; sn.forEach(p=>x.fillRect(p.x,p.y,15,15));
+                let h={...sn[0]}; if(d=='L')h.x-=15; if(d=='U')h.y-=15; if(d=='R')h.x+=15; if(d=='D')h.y+=15;
+                if(h.x==f.x&&h.y==f.y){sc++; f={x:Math.floor(Math.random()*19)*15,y:Math.floor(Math.random()*19)*15}} else sn.pop();
+                if(h.x<0||h.x>=300||h.y<0||h.y>=300){sn=[{x:150,y:150}]; sc=0; d='R';}
+                sn.unshift(h); document.getElementById('scr').innerText="Score: "+sc;
+            }, 130);
+        </script>""", height=420)
 
     elif game == "Memory Match":
         st.components.v1.html("""
-        <div style="text-align:center; background:#1E293B; padding:15px; border-radius:20px; color:white; font-family:sans-serif;">
-            <div id="msg">Find the pairs!</div>
-            <div id="grid" style="display:grid; grid-template-columns: repeat(4, 60px); gap:10px; justify-content:center; margin-top:15px;"></div>
-        </div>
+        <div style="text-align:center; background:#1E293B; padding:20px; border-radius:15px;"><div id="grid" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; max-width:300px; margin:auto;"></div></div>
         <script>
-            const icons=['🍎','🍎','🍌','🍌','🍇','🍇','🍓','🍓','🍒','🍒','🍍','🍍','🥭','🥭','🥝','🥝'].sort(()=>Math.random()-0.5);
-            const grid=document.getElementById('grid'); let flipped=[];
-            icons.forEach((icon, i)=>{
-                const card=document.createElement('div');
-                card.style="width:60px; height:60px; background:#334155; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer;";
-                card.onclick=()=>{
-                    if(flipped.length<2 && card.innerText==''){
-                        card.innerText=icon; flipped.push({card, icon});
-                        if(flipped.length==2){
-                            if(flipped[0].icon==flipped[1].icon) flipped=[];
-                            else setTimeout(()=>{ flipped[0].card.innerText=''; flipped[1].card.innerText=''; flipped=[]; }, 700);
+            const icons=['❤️','❤️','⭐','⭐','🍀','🍀','💎','💎','🍎','🍎','🎈','🎈','🎨','🎨','⚡','⚡'].sort(()=>Math.random()-0.5);
+            let act=[];
+            icons.forEach((ic)=>{
+                let c=document.createElement('div');
+                c.style="height:65px; background:#334155; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer;";
+                c.onclick=()=>{
+                    if(act.length<2 && c.innerText==''){
+                        c.innerText=ic; act.push({c,ic});
+                        if(act.length==2){
+                            if(act[0].ic==act[1].ic) act=[];
+                            else setTimeout(()=>{ act[0].c.innerText=''; act[1].c.innerText=''; act=[]; }, 600);
                         }
                     }
                 };
-                grid.appendChild(card);
+                document.getElementById('grid').appendChild(c);
             });
-        </script>
-        """, height=400)
+        </script>""", height=380)
 
-    elif game == "Flash Pattern (Simon Says)":
+    elif game == "Simon Says":
         st.components.v1.html("""
-        <div style="text-align:center; background:#1E293B; padding:15px; border-radius:20px; color:white; font-family:sans-serif;">
-            <div id="lvl">Level: 1</div>
-            <div style="display:grid; grid-template-columns:100px 100px; gap:15px; justify-content:center; margin-top:20px;">
-                <div id="0" onclick="tap(0)" style="width:100px; height:100px; background:red; opacity:0.6; border-radius:15px;"></div>
-                <div id="1" onclick="tap(1)" style="width:100px; height:100px; background:blue; opacity:0.6; border-radius:15px;"></div>
-                <div id="2" onclick="tap(2)" style="width:100px; height:100px; background:yellow; opacity:0.6; border-radius:15px;"></div>
-                <div id="3" onclick="tap(3)" style="width:100px; height:100px; background:green; opacity:0.6; border-radius:15px;"></div>
+        <div style="text-align:center; background:#1E293B; padding:20px; border-radius:15px;">
+            <div id="stat" style="color:white; margin-bottom:15px;">Level 1</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; max-width:240px; margin:auto;">
+                <div id="0" onclick="tp(0)" style="height:80px; background:#EF4444; opacity:0.3; border-radius:10px;"></div>
+                <div id="1" onclick="tp(1)" style="height:80px; background:#3B82F6; opacity:0.3; border-radius:10px;"></div>
+                <div id="2" onclick="tp(2)" style="height:80px; background:#EAB308; opacity:0.3; border-radius:10px;"></div>
+                <div id="3" onclick="tp(3)" style="height:80px; background:#22C55E; opacity:0.3; border-radius:10px;"></div>
             </div>
-            <button onclick="start()" style="margin-top:20px; padding:10px 30px; border-radius:10px; background:#38BDF8; color:white; border:none;">Start Game</button>
+            <button onclick="sq=[];nxt()" style="margin-top:15px; width:100%; padding:10px; background:#38BDF8; color:white; border:none; border-radius:8px;">START</button>
         </div>
         <script>
-            let seq=[], user=[], level=1;
-            function start(){ seq=[]; nextLvl(); }
-            function nextLvl(){ user=[]; seq.push(Math.floor(Math.random()*4)); showSeq(); }
-            function showSeq(){
-                let i=0; const t = setInterval(()=>{
-                    flash(seq[i]); i++; if(i>=seq.length) clearInterval(t);
-                }, 600);
-            }
-            function flash(id){ 
-                const el=document.getElementById(id); el.style.opacity='1'; 
-                setTimeout(()=>el.style.opacity='0.6', 300);
-            }
-            function tap(id){
-                flash(id); user.push(id);
-                if(user[user.length-1] !== seq[user.length-1]){ alert('Game Over!'); start(); }
-                else if(user.length === seq.length){ level++; document.getElementById('lvl').innerText='Level: '+level; setTimeout(nextLvl, 800); }
-            }
-        </script>
-        """, height=500)
+            let sq=[], u=[], lv=1;
+            function nxt(){ u=[]; sq.push(Math.floor(Math.random()*4)); ply(); }
+            function ply(){ let i=0; let t=setInterval(()=>{ fl(sq[i]); i++; if(i>=sq.length)clearInterval(t); }, 600); }
+            function fl(id){ let e=document.getElementById(id); e.style.opacity='1'; setTimeout(()=>e.style.opacity='0.3', 300); }
+            function tp(id){ fl(id); u.push(id); if(u[u.length-1]!==sq[u.length-1]){ alert('Over!'); sq=[]; lv=1; } else if(u.length==sq.length){ lv++; document.getElementById('stat').innerText='Level '+lv; setTimeout(nxt, 800); } }
+        </script>""", height=400)
 
-# --- 7. ADMIN TOOLS (RE-POLISHED) ---
+# --- 7. ENHANCED ADMIN ---
 with tabs[3]:
     if st.session_state.auth["role"] == "admin":
-        sub = st.tabs(["🔍 Search Logs", "🚨 Broadcast", "🛠️ System"])
+        st.subheader("🛡️ Advanced Log Explorer")
         l_df = get_data("ChatLogs")
         
-        with sub[0]:
-            c1, c2 = st.columns([2,1])
-            s_q = c1.text_input("🔍 Keyword Search")
-            u_f = c2.selectbox("User ID", ["All"] + list(l_df['memberid'].unique()) if not l_df.empty else ["All"])
+        if not l_df.empty:
+            # Multi-Filter Sidebar-style Layout
+            with st.expander("🔍 Filter Controls", expanded=True):
+                c1, c2, c3, c4 = st.columns(4)
+                f_user = c1.selectbox("Member ID", ["All Users"] + list(l_df['memberid'].unique()))
+                f_agent = c2.selectbox("Agent", ["All Agents", "Cooper", "Clara"])
+                f_date = c3.date_input("Date Range", [date(2025, 1, 1), date.today()])
+                f_text = c4.text_input("Keyword Search")
+
+            # Apply Logic
             filt = l_df.copy()
-            if u_f != "All": filt = filt[filt['memberid'].astype(str) == u_f]
-            if s_q: filt = filt[filt['content'].str.contains(s_q, case=False, na=False)]
-            st.dataframe(filt.sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
+            filt['timestamp_dt'] = pd.to_datetime(filt['timestamp']).dt.date
+            
+            if f_user != "All Users": filt = filt[filt['memberid'].astype(str) == str(f_user)]
+            if f_agent != "All Agents": filt = filt[filt['agent'] == f_agent]
+            if len(f_date) == 2:
+                filt = filt[(filt['timestamp_dt'] >= f_date[0]) & (filt['timestamp_dt'] <= f_date[1])]
+            if f_text: filt = filt[filt['content'].str.contains(f_text, case=False, na=False)]
 
-        with sub[1]:
-            users_list = get_data("Users")
-            t_u = st.selectbox("Recipient", users_list['memberid'].unique())
-            msg = st.text_area("Admin Alert Content")
-            if st.button("🚀 Push Alert"):
-                save_log("Cooper", "admin_alert", msg, target_mid=t_u, is_admin_alert=True)
-                st.success("Alert sent to user.")
+            st.write(f"Showing {len(filt)} results")
+            st.dataframe(filt.drop(columns=['timestamp_dt']).sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
 
-        with sub[2]:
-            st.warning("Critical Operations")
-            wipe_target = st.selectbox("Purge History for:", ["None"] + list(l_df['memberid'].unique()) if not l_df.empty else ["None"])
-            if st.button("🔥 Permanently Delete Logs"):
-                if wipe_target != "None":
-                    new_logs = l_df[l_df['memberid'].astype(str) != str(wipe_target)]
-                    conn.update(worksheet="ChatLogs", data=new_logs)
-                    st.cache_data.clear()
-                    st.success(f"History for {wipe_target} cleared.")
-                    st.rerun()
-    else: st.error("Admin Only")
+            st.divider()
+            st.warning("Data Management")
+            wipe_target = st.selectbox("Purge all logs for:", ["None"] + list(l_df['memberid'].unique()))
+            if st.button("🔥 Permanently Purge User Data") and wipe_target != "None":
+                new_logs = l_df[l_df['memberid'].astype(str) != str(wipe_target)]
+                conn.update(worksheet="ChatLogs", data=new_logs)
+                st.cache_data.clear()
+                st.success(f"Logs for {wipe_target} deleted."); st.rerun()
+        else: st.info("No logs found in database.")
+    else: st.error("Admin Access Required")
 
 with tabs[4]:
-    if st.button("Logout"):
-        st.session_state.clear()
-        st.rerun()
+    if st.button("Logout"): st.session_state.clear(); st.rerun()
