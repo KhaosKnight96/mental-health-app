@@ -50,10 +50,12 @@ def save_log(agent, role, content):
 def get_ai_response(agent, prompt, history):
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
+        sys = "You are a trusted friend. Speak like a real human. Be empathetic and fluid."
         if agent == "Cooper":
             sys = "You are Cooper, a trusted male friend. Steady and loyal. Speak like a real human friend."
-        else:
+        elif agent == "Clara":
             sys = "You are Clara, a close female friend. Use casual, fluid, human speech. Be empathetic."
+            
         full_history = [{"role": "system", "content": sys}] + history[-5:] + [{"role": "user", "content": prompt}]
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history, temperature=0.8)
         return res.choices[0].message.content
@@ -96,9 +98,7 @@ with tabs[0]:
             if st.button("Save Changes"):
                 users = get_data("Users")
                 idx = users['memberid'].astype(str).str.lower() == st.session_state.auth['mid']
-                users.loc[idx, 'name'] = new_name
-                users.loc[idx, 'age'] = new_age
-                users.loc[idx, 'bio'] = new_bio
+                users.loc[idx, ['name', 'age', 'bio']] = [new_name, new_age, new_bio]
                 conn.update(worksheet="Users", data=users)
                 st.session_state.auth.update({"name": new_name, "age": new_age, "bio": new_bio})
                 st.cache_data.clear(); st.success("Profile Updated!"); st.rerun()
@@ -116,20 +116,20 @@ with tabs[0]:
             for _, post in feed.iterrows():
                 st.markdown(f'<div class="feed-card"><div style="color:#38BDF8; font-weight:bold;">@{post["memberid"]}</div><div style="font-size:11px; opacity:0.6;">{post["timestamp"]}</div><div style="margin-top:8px;">{post["content"]}</div></div>', unsafe_allow_html=True)
 
-# --- AI CHATS (COOPER & CLARA) ---
+# --- AI CHATS ---
 for i, agent in enumerate(["Cooper", "Clara"]):
     with tabs[i+1]:
         st.markdown(f'<div class="avatar-pulse">{"🤝" if agent=="Cooper" else "✨"}</div>', unsafe_allow_html=True)
         all_logs = get_data("ChatLogs")
         ulogs = all_logs[(all_logs['memberid'].astype(str) == st.session_state.auth['mid']) & (all_logs['agent'] == agent)].tail(20)
-        box = st.container(height=400, border=False)
-        with box:
+        with st.container(height=400, border=False):
             for _, r in ulogs.iterrows():
                 style = "user-bubble" if r['role'] == "user" else "ai-bubble"
                 st.markdown(f'<div class="chat-bubble {style}">{r["content"]}</div>', unsafe_allow_html=True)
         if p := st.chat_input(f"Talk to {agent}...", key=f"ai_{agent}"):
             save_log(agent, "user", p)
-            res = get_ai_response(agent, p, [{"role": r.role, "content": r.content} for _, r in ulogs.iterrows()])
+            history = [{"role": r.role, "content": r.content} for _, r in ulogs.iterrows()]
+            res = get_ai_response(agent, p, history)
             save_log(agent, "assistant", res); st.rerun()
 
 # --- MESSAGES ---
@@ -158,43 +158,40 @@ with tabs[4]:
     elif game == "Simon Says":
         st.components.v1.html("""<div style="text-align:center; background:#1E293B; padding:20px; border-radius:15px;"><div id="stat" style="color:white; margin-bottom:15px;">Level 1</div><div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; max-width:240px; margin:auto;"><div id="0" onclick="tp(0)" style="height:80px; background:#EF4444; opacity:0.3; border-radius:10px;"></div><div id="1" onclick="tp(1)" style="height:80px; background:#3B82F6; opacity:0.3; border-radius:10px;"></div><div id="2" onclick="tp(2)" style="height:80px; background:#EAB308; opacity:0.3; border-radius:10px;"></div><div id="3" onclick="tp(3)" style="height:80px; background:#22C55E; opacity:0.3; border-radius:10px;"></div></div><button onclick="sq=[];nxt()" style="margin-top:15px; width:100%; padding:10px; background:#38BDF8; color:white; border:none; border-radius:8px;">START</button></div><script>let sq=[], u=[], lv=1; function nxt(){ u=[]; sq.push(Math.floor(Math.random()*4)); ply(); } function ply(){ let i=0; let t=setInterval(()=>{ fl(sq[i]); i++; if(i>=sq.length)clearInterval(t); }, 600); } function fl(id){ let e=document.getElementById(id); e.style.opacity='1'; setTimeout(()=>e.style.opacity='0.3', 300); } function tp(id){ fl(id); u.push(id); if(u[u.length-1]!==sq[u.length-1]){ alert('Over!'); sq=[]; lv=1; } else if(u.length==sq.length){ lv++; document.getElementById('stat').innerText='Level '+lv; setTimeout(nxt, 800); } }</script>""", height=400)
 
-# --- 6. ADMIN (RE-ADDED SEARCH & DATE FILTERS) ---
+# --- 6. ADMIN ---
 with tabs[5]:
     if st.session_state.auth["role"] == "admin":
         st.subheader("🛡️ Advanced Log Explorer")
         l_df = get_data("ChatLogs")
-        
         if not l_df.empty:
-            # Convert timestamp for range filtering
-            l_df['dt'] = pd.to_datetime(l_df['timestamp'], errors='coerce')
+            # Safely handle dates
+            l_df['dt_obj'] = pd.to_datetime(l_df['timestamp'], errors='coerce')
             
-            with st.expander("🔍 Search & Date Filters", expanded=True):
+            with st.expander("🔍 Search & Filters", expanded=True):
                 c1, c2 = st.columns(2)
-                f_u = c1.selectbox("Filter User", ["All"] + list(l_df['memberid'].unique()))
+                f_u = c1.selectbox("Filter User", ["All"] + sorted(list(l_df['memberid'].unique())))
                 f_a = c2.selectbox("Filter Agent", ["All", "Cooper", "Clara", "Direct", "Feed"])
-                
                 f_q = st.text_input("Keyword Search")
                 
-                # Time Range Filter
-                min_date = l_df['dt'].min().date() if not l_df['dt'].dropna().empty else date.today()
-                max_date = date.today()
-                date_range = st.date_input("Select Date Range", value=(min_date, max_date))
-            
-            # Apply Filters
+                min_date = l_df['dt_obj'].min().date() if not l_df['dt_obj'].isnull().all() else date.today()
+                dr = st.date_input("Date Range", value=(min_date, date.today()))
+
             filt = l_df.copy()
             if f_u != "All": filt = filt[filt['memberid'].astype(str) == str(f_u)]
-            if f_a != "All": filt = filt[filt['agent'].str.contains(f_a, case=False)]
-            if f_q: filt = filt[filt['content'].str.contains(f_q, case=False)]
-            if len(date_range) == 2:
-                filt = filt[(filt['dt'].dt.date >= date_range[0]) & (filt['dt'].dt.date <= date_range[1])]
+            if f_a != "All": filt = filt[filt['agent'].str.contains(f_a, case=False, na=False)]
+            if f_q: filt = filt[filt['content'].str.contains(f_q, case=False, na=False)]
+            
+            # FIXED: Safe comparison between datetime64[ns] and date objects
+            if isinstance(dr, (list, tuple)) and len(dr) == 2:
+                filt = filt[(filt['dt_obj'].dt.date >= dr[0]) & (filt['dt_obj'].dt.date <= dr[1])]
             
             st.write(f"Showing {len(filt)} matching records")
-            st.dataframe(filt.drop(columns=['dt']).sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
+            st.dataframe(filt.drop(columns=['dt_obj']).sort_values('timestamp', ascending=False), use_container_width=True, hide_index=True)
             
             st.divider()
             target = st.selectbox("Wipe User History:", ["None"] + list(l_df['memberid'].unique()))
             if st.button("Delete History") and target != "None":
-                new = l_df[l_df['memberid'].astype(str) != str(target)].drop(columns=['dt'])
+                new = l_df[l_df['memberid'].astype(str) != str(target)].drop(columns=['dt_obj'])
                 conn.update(worksheet="ChatLogs", data=new); st.cache_data.clear(); st.rerun()
     else: st.error("Admin Only")
 
