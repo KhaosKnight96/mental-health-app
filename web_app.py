@@ -7,21 +7,21 @@ from datetime import datetime, date, timedelta
 # --- 1. SETTINGS & SESSION ---
 st.set_page_config(page_title="Health Bridge Pro", layout="wide", initial_sidebar_state="collapsed")
 
+# Initialize session states
 if "auth" not in st.session_state: 
     st.session_state.auth = {"in": False, "mid": None, "role": "user", "name": "", "bio": "", "age": ""}
 if "selected_search_id" not in st.session_state:
     st.session_state.selected_search_id = None
 
-# Custom CSS for Chat Bubbles, Feed Cards, and Touch-Friendly Arcade
+# Custom CSS for modern UI and Touch-Friendly Games
 st.markdown("""
 <style>
     .stApp { background-color: #0F172A; color: #F8FAFC; }
     .chat-bubble { padding: 12px 18px; border-radius: 18px; margin-bottom: 10px; max-width: 85%; line-height: 1.5; font-family: sans-serif; }
     .user-bubble { background: #1E40AF; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
     .ai-bubble { background: #334155; color: white; margin-right: auto; border-bottom-left-radius: 2px; }
-    .direct-bubble { background: #065F46; color: white; margin-right: auto; border-bottom-left-radius: 2px; border-left: 4px solid #10B981; }
     .feed-card { background: #1E293B; padding: 20px; border-radius: 15px; border: 1px solid #334155; margin-bottom: 15px; }
-    .avatar-pulse { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 30px; margin: 0 auto 10px; background: linear-gradient(135deg, #38BDF8, #6366F1); box-shadow: 0 0 15px rgba(56, 189, 248, 0.4); }
+    .avatar-pulse { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 30px; margin: 0 auto 10px; background: linear-gradient(135deg, #38BDF8, #6366F1); }
     .game-container { touch-action: none; user-select: none; -webkit-tap-highlight-color: transparent; }
 </style>
 """, unsafe_allow_html=True)
@@ -57,13 +57,13 @@ def save_log(agent, role, content):
 def get_ai_response(agent, prompt, history):
     try:
         client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
-        sys = f"You are {agent}. Speak like a real human friend, fluid and empathetic."
+        sys = f"You are {agent}, a genuinely helpful AI thought partner. Be empathetic and concise."
         full_history = [{"role": "system", "content": sys}] + history[-5:] + [{"role": "user", "content": prompt}]
         res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=full_history, temperature=0.8)
         return res.choices[0].message.content
     except Exception as e: return f"AI Error: {e}"
 
-# --- 4. AUTHENTICATION ---
+# --- 4. AUTH ---
 if not st.session_state.auth["in"]:
     st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge</h1>", unsafe_allow_html=True)
     with st.container(border=True):
@@ -76,15 +76,15 @@ if not st.session_state.auth["in"]:
                 st.session_state.auth.update({
                     "in": True, "mid": u, "role": str(m.iloc[0]['role']).lower(),
                     "name": str(m.iloc[0].get('name', 'User')), 
-                    "bio": str(m.iloc[0].get('bio', 'No bio yet.')),
+                    "bio": str(m.iloc[0].get('bio', 'No bio.')),
                     "age": str(m.iloc[0].get('age', 'N/A'))
                 })
                 st.rerun()
-            else: st.error("Invalid Credentials")
+            else: st.error("Invalid Member ID or Password")
     st.stop()
 
-# --- 5. MAIN INTERFACE ---
-tabs = st.tabs(["👤 Profile", "🤝 Cooper", "✨ Clara", "👥 Friends", "📩 Messages", "🎮 Arcade", "🛠️ Admin", "🚪 Logout"])
+# --- 5. INTERFACE TABS ---
+tabs = st.tabs(["👤 Profile", "🤝 Cooper", "✨ Clara", "👥 Friends", "🎮 Arcade", "🛠️ Admin", "🚪 Logout"])
 
 # --- TAB 0: PROFILE & FEED ---
 with tabs[0]:
@@ -96,8 +96,8 @@ with tabs[0]:
         st.info(f"**Bio:** {st.session_state.auth['bio']}")
     with c2:
         st.subheader("📢 Community Feed")
-        post_txt = st.text_area("Share an update...", label_visibility="collapsed")
-        if st.button("Post to Feed"):
+        post_txt = st.text_area("Share a thought...", label_visibility="collapsed")
+        if st.button("Post Update"):
             if post_txt: save_log("Feed", "user", post_txt); st.rerun()
         l_df = get_data("ChatLogs")
         if not l_df.empty:
@@ -105,52 +105,42 @@ with tabs[0]:
             for _, p in feed.iterrows():
                 st.markdown(f'<div class="feed-card"><b>@{p["memberid"]}</b><br><small>{p["timestamp"]}</small><p>{p["content"]}</p></div>', unsafe_allow_html=True)
 
-# --- TAB 3: FRIENDS (VERIFIED PROFILE SEARCH) ---
+# --- TAB 3: FRIENDS ---
 with tabs[3]:
     f_df, u_df = get_data("Friends"), get_data("Users")
-    l_df = get_data("ChatLogs")
     col_a, col_b = st.columns(2)
     with col_a:
-        st.write("### 🔍 Find People")
-        sq = st.text_input("Search Name/ID:").strip().lower()
+        st.write("### 🔍 Search People")
+        sq = st.text_input("Search ID/Name:").strip().lower()
         if sq:
             results = u_df[(u_df['name'].str.contains(sq, case=False, na=False)) | (u_df['memberid'].astype(str).str.lower() == sq)]
             results = results[results['memberid'].astype(str).str.lower() != st.session_state.auth['mid']]
             for _, r in results.iterrows():
-                if st.button(f"👤 View {r['name']}", key=f"search_{r['memberid']}"):
+                if st.button(f"👤 View Profile: {r['name']}", key=f"s_{r['memberid']}"):
                     st.session_state.selected_search_id = str(r['memberid'])
         
         if st.session_state.selected_search_id:
             with st.container(border=True):
                 target = u_df[u_df['memberid'].astype(str).str.lower() == st.session_state.selected_search_id].iloc[0]
-                st.write(f"**Name:** {target['name']}")
+                st.write(f"### {target['name']}")
                 st.write(f"**Bio:** {target.get('bio', 'No bio.')}")
-                if st.button("✅ Send Friend Request"):
+                if st.button("✅ Send Request"):
                     save_to_sheet("Friends", pd.DataFrame([{"sender": st.session_state.auth['mid'], "receiver": st.session_state.selected_search_id, "status": "pending"}]))
                     st.success("Request Sent!"); st.session_state.selected_search_id = None; st.rerun()
-                if st.button("Cancel"): st.session_state.selected_search_id = None; st.rerun()
+                if st.button("Close Preview"): st.session_state.selected_search_id = None; st.rerun()
     with col_b:
-        st.write("### 👥 My Circle")
+        st.write("### 📥 Requests")
         inbox = f_df[(f_df['receiver'] == st.session_state.auth['mid']) & (f_df['status'] == "pending")]
         for _, r in inbox.iterrows():
-            if st.button(f"✅ Accept {r['sender']}"):
+            if st.button(f"✅ Accept {r['sender']}", key=f"acc_{r['sender']}"):
                 f_df.loc[(f_df['sender'] == r['sender']) & (f_df['receiver'] == st.session_state.auth['mid']), 'status'] = "accepted"
                 conn.update(worksheet="Friends", data=f_df); st.rerun()
-        
-        f1 = f_df[(f_df['sender'] == st.session_state.auth['mid']) & (f_df['status'] == "accepted")]['receiver'].tolist()
-        f2 = f_df[(f_df['receiver'] == st.session_state.auth['mid']) & (f_df['status'] == "accepted")]['sender'].tolist()
-        friends = list(set(f1 + f2))
-        if friends:
-            sel_f = st.selectbox("Quick View Friend:", ["-- Select --"] + friends)
-            if sel_f != "-- Select --":
-                f_posts = l_df[(l_df['memberid'] == sel_f) & (l_df['agent'] == "Feed")].head(3)
-                for _, p in f_posts.iterrows(): st.caption(f"{p['timestamp']}: {p['content']}")
 
-# --- TAB 5: ARCADE (TOUCH/SWIPE/KEYBOARD ENGINE) ---
-with tabs[5]:
-    game_mode = st.segmented_control("Arcade Mode", ["Snake (Swipe/Keys)", "Memory Match (Auto Level)", "Simon Says"], default="Snake (Swipe/Keys)")
+# --- TAB 4: ARCADE (SNAKE, MEMORY, SIMON) ---
+with tabs[4]:
+    game_choice = st.radio("Game Library", ["Snake (Swipe)", "Memory Match (Auto)", "Simon Says (Touch)"], horizontal=True)
     
-    if game_mode == "Snake (Swipe/Keys)":
+    if game_choice == "Snake (Swipe)":
         st.components.v1.html("""
         <div class="game-container" style="text-align:center; background:#1E293B; padding:15px; border-radius:20px;">
             <div id="scr" style="color:#38BDF8; font-size:20px; font-weight:bold;">Score: 0</div>
@@ -159,47 +149,40 @@ with tabs[5]:
         <script>
             const c=document.getElementById('snk'), x=c.getContext('2d');
             let sn=[{x:150,y:150}], f={x:75,y:75}, d='R', sc=0, tsX=null, tsY=null;
-            window.onkeydown=e=>{
-                if(e.key=='ArrowUp'&&d!='D')d='U'; if(e.key=='ArrowDown'&&d!='U')d='D';
-                if(e.key=='ArrowLeft'&&d!='R')d='L'; if(e.key=='ArrowRight'&&d!='L')d='R';
-            };
-            c.addEventListener('touchstart', e=>{ tsX=e.touches[0].clientX; tsY=e.touches[0].clientY; }, false);
+            window.onkeydown=e=>{ if(e.key.includes('Arrow')) d=e.key[5][0]; };
+            c.addEventListener('touchstart', e=>{ tsX=e.touches[0].clientX; tsY=e.touches[0].clientY; });
             c.addEventListener('touchmove', e=>{
                 if(!tsX||!tsY) return;
-                let tdX=tsX-e.touches[0].clientX, tdY=tsY-e.touches[0].clientY;
-                if(Math.abs(tdX)>Math.abs(tdY)){ if(tdX>0 && d!='R')d='L'; else if(d!='L') d='R'; }
-                else { if(tdY>0 && d!='D')d='U'; else if(d!='U') d='D'; }
+                let dx=tsX-e.touches[0].clientX, dy=tsY-e.touches[0].clientY;
+                if(Math.abs(dx)>Math.abs(dy)) d=dx>0?'L':'R'; else d=dy>0?'U':'D';
                 tsX=null; tsY=null; e.preventDefault();
-            }, {passive: false});
+            }, {passive:false});
             setInterval(()=>{
-                x.fillStyle='#0F172A'; x.fillRect(0,0,300,300);
-                x.fillStyle='#F87171'; x.fillRect(f.x,f.y,15,15);
+                x.fillStyle='#0F172A'; x.fillRect(0,0,300,300); x.fillStyle='#F87171'; x.fillRect(f.x,f.y,15,15);
                 x.fillStyle='#38BDF8'; sn.forEach(p=>x.fillRect(p.x,p.y,15,15));
                 let h={...sn[0]};
-                if(d=='L')h.x-=15; if(d=='U')h.y-=15; if(d=='R')h.x+=15; if(d=='D')h.y+=15;
+                if(d=='L'||d=='l')h.x-=15; if(d=='U'||d=='u')h.y-=15; if(d=='R'||d=='r')h.x+=15; if(d=='D'||d=='d')h.y+=15;
                 if(h.x==f.x&&h.y==f.y){sc++; f={x:Math.floor(Math.random()*19)*15,y:Math.floor(Math.random()*19)*15}} else sn.pop();
                 if(h.x<0||h.x>=300||h.y<0||h.y>=300||sn.some(s=>s.x==h.x&&s.y==h.y)){sn=[{x:150,y:150}]; sc=0; d='R';}
                 sn.unshift(h); document.getElementById('scr').innerText="Score: "+sc;
             }, 130);
         </script>
-        """, height=420)
-
-    elif game_mode == "Memory Match (Auto Level)":
+        """, height=400)
+    
+    elif game_choice == "Memory Match (Auto)":
         st.components.v1.html("""
         <div class="game-container" style="text-align:center; background:#1E293B; padding:15px; border-radius:15px;">
-            <div id="msg" style="color:#38BDF8; font-size:18px; margin-bottom:10px;">Level 1 (2x2)</div>
+            <div id="msg" style="color:#38BDF8; font-size:18px; margin-bottom:10px;">Memory Game</div>
             <div id="grid" style="display:grid; gap:8px; margin:auto; max-width:320px;"></div>
         </div>
         <script>
-            let cards=[], flipped=[], matched=0, sz=2;
-            const icons=['❤️','⭐','🍀','💎','🎈','🎨','⚡','🔥','🍄','🌈','🌊','🍕'];
+            let cards=[], flipped=[], matched=0;
+            const icons=['❤️','⭐','🍀','💎','🎈','🎨','⚡','🔥','🍄','🌈'];
             function start(n){
-                sz=n; matched=0; flipped=[];
-                const g=document.getElementById('grid'); g.innerHTML='';
+                matched=0; flipped=[]; const g=document.getElementById('grid'); g.innerHTML='';
                 g.style.gridTemplateColumns=`repeat(${n}, 1fr)`;
-                document.getElementById('msg').innerText=`Level ${n-1} (${n}x${n})`;
-                let count=(n*n)/2;
-                let items=[...icons.slice(0,count), ...icons.slice(0,count)].sort(()=>Math.random()-0.5);
+                document.getElementById('msg').innerText=`Level ${n/2} (${n}x${n})`;
+                let count=(n*n)/2; let items=[...icons.slice(0,count), ...icons.slice(0,count)].sort(()=>Math.random()-0.5);
                 items.forEach(icon=>{
                     let c=document.createElement('div');
                     c.style="height:65px; background:#334155; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:24px; cursor:pointer;";
@@ -215,7 +198,7 @@ with tabs[5]:
         </script>
         """, height=450)
 
-    elif game_mode == "Simon Says":
+    elif game_choice == "Simon Says (Touch)":
         st.components.v1.html("""
         <div class="game-container" style="text-align:center; background:#1E293B; padding:20px; border-radius:15px;">
             <div id="stat" style="color:white; font-size:20px; margin-bottom:15px;">Level 1</div>
@@ -225,52 +208,52 @@ with tabs[5]:
                 <div id="2" onclick="tp(2)" style="height:100px; background:#EAB308; opacity:0.3; border-radius:10px; cursor:pointer;"></div>
                 <div id="3" onclick="tp(3)" style="height:100px; background:#22C55E; opacity:0.3; border-radius:10px; cursor:pointer;"></div>
             </div>
-            <button onclick="sq=[];lv=1;nxt()" style="margin-top:20px; width:100%; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold;">START GAME</button>
+            <button onclick="sq=[];lv=1;nxt()" style="margin-top:20px; width:100%; padding:15px; background:#38BDF8; color:white; border:none; border-radius:10px; font-weight:bold; cursor:pointer;">START</button>
         </div>
         <script>
             let sq=[], u=[], lv=1;
             function nxt(){ u=[]; sq.push(Math.floor(Math.random()*4)); ply(); }
             function ply(){ let i=0; let t=setInterval(()=>{ fl(sq[i]); i++; if(i>=sq.length)clearInterval(t); }, 600); }
             function fl(id){ let e=document.getElementById(id); e.style.opacity='1'; setTimeout(()=>e.style.opacity='0.3', 300); }
-            function tp(id){ fl(id); u.push(id); if(u[u.length-1]!==sq[u.length-1]){ alert('Sequence Error!'); sq=[]; lv=1; document.getElementById('stat').innerText='Level 1'; } 
+            function tp(id){ fl(id); u.push(id); if(u[u.length-1]!==sq[u.length-1]){ alert('Game Over!'); sq=[]; lv=1; document.getElementById('stat').innerText='Level 1'; } 
             else if(u.length==sq.length){ lv++; document.getElementById('stat').innerText='Level '+lv; setTimeout(nxt, 800); } }
         </script>
         """, height=450)
 
-# --- TAB 6: ADMIN (STRICT PD.TIMESTAMP FIX) ---
-with tabs[6]:
+# --- TAB 5: ADMIN (MIXED TIME FIX) ---
+with tabs[5]:
     if st.session_state.auth["role"] == "admin":
-        st.subheader("🛡️ Activity Explorer")
+        st.subheader("🛡️ Global Activity Explorer")
         all_l = get_data("ChatLogs")
         if not all_l.empty:
-            all_l['dt'] = pd.to_datetime(all_l['timestamp'])
-            c1, c2 = st.columns(2)
-            u_f = c1.selectbox("User Filter", ["All"] + list(all_l['memberid'].unique()))
-            d_r = c2.date_input("Filter Range", value=(all_l['dt'].min().date(), date.today()))
+            # MIXED FORMAT FIX: Handle both 2025-12-29 and 12/29/2025 reliably
+            all_l['dt'] = pd.to_datetime(all_l['timestamp'], format='mixed')
             
-            # THE FIX: Explicit conversion to pd.Timestamp for valid comparison
+            c1, c2 = st.columns(2)
+            u_f = c1.selectbox("Filter User", ["All"] + list(all_l['memberid'].unique()))
+            d_r = c2.date_input("Range", value=(all_l['dt'].min().date(), date.today()))
+            
             if isinstance(d_r, tuple) and len(d_r) == 2:
-                start_ts = pd.Timestamp(d_r[0])
-                end_ts = pd.Timestamp(d_r[1]) + pd.Timedelta(days=1)
-                filt = all_l[(all_l['dt'] >= start_ts) & (all_l['dt'] < end_ts)]
+                s_ts, e_ts = pd.Timestamp(d_r[0]), pd.Timestamp(d_r[1]) + pd.Timedelta(days=1)
+                filt = all_l[(all_l['dt'] >= s_ts) & (all_l['dt'] < e_ts)]
                 if u_f != "All": filt = filt[filt['memberid'] == u_f]
                 st.dataframe(filt.drop(columns=['dt']).sort_values('timestamp', ascending=False), use_container_width=True)
-    else: st.error("Admin Access Required")
+    else: st.error("Admin Credentials Required")
 
-# --- AI AGENTS & LOGOUT ---
+# --- AI AGENTS (COOPER & CLARA) ---
 for i, agent in enumerate(["Cooper", "Clara"]):
     with tabs[i+1]:
-        st.markdown(f'<div class="avatar-pulse">{"🤝" if agent=="Cooper" else "✨"}</div>', unsafe_allow_html=True)
-        logs = get_data("ChatLogs")
-        ulogs = logs[(logs['memberid'] == st.session_state.auth['mid']) & (logs['agent'] == agent)].tail(20)
+        all_logs = get_data("ChatLogs")
+        ulogs = all_logs[(all_logs['memberid'] == st.session_state.auth['mid']) & (all_logs['agent'] == agent)].tail(15)
         with st.container(height=350):
             for _, r in ulogs.iterrows():
                 sty = "user-bubble" if r['role'] == "user" else "ai-bubble"
                 st.markdown(f'<div class="chat-bubble {sty}">{r["content"]}</div>', unsafe_allow_html=True)
-        if prompt := st.chat_input(f"Chat with {agent}...", key=f"chat_{agent}"):
+        if prompt := st.chat_input(f"Talk with {agent}...", key=f"chat_{agent}"):
             save_log(agent, "user", prompt)
             response = get_ai_response(agent, prompt, [{"role": r.role, "content": r.content} for _, r in ulogs.iterrows()])
             save_log(agent, "assistant", response); st.rerun()
 
-with tabs[7]:
-    if st.button("Confirm Logout"): st.session_state.clear(); st.rerun()
+# --- TAB 6: LOGOUT ---
+with tabs[6]:
+    if st.button("Logout of Session"): st.session_state.clear(); st.rerun()
