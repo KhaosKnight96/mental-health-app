@@ -10,7 +10,7 @@ st.set_page_config(page_title="Health Bridge Pro", layout="wide", initial_sideba
 if "auth" not in st.session_state: 
     st.session_state.auth = {"in": False, "mid": None, "role": "user", "name": "", "bio": "", "age": ""}
 if "view_mid" not in st.session_state:
-    st.session_state.view_mid = None  # Track which profile we are currently viewing
+    st.session_state.view_mid = None
 
 st.markdown("""
 <style>
@@ -24,16 +24,19 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DATA CORE ---
+# --- 2. DATA CORE (FIXED FOR KEYERROR) ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 @st.cache_data(ttl=1)
-def get_data(ws):
+def get_data(ws, cols=None):
     try:
         df = conn.read(worksheet=ws, ttl=0)
+        if df.empty and cols:
+            return pd.DataFrame(columns=[c.lower() for c in cols])
         df.columns = [str(c).strip().lower() for c in df.columns]
         return df
-    except: return pd.DataFrame()
+    except: 
+        return pd.DataFrame(columns=[c.lower() for c in cols]) if cols else pd.DataFrame()
 
 def save_to_sheet(ws_name, df_to_add):
     try:
@@ -68,7 +71,7 @@ if not st.session_state.auth["in"]:
         u = st.text_input("Member ID").strip().lower()
         p = st.text_input("Password", type="password")
         if st.button("Sign In", use_container_width=True):
-            users = get_data("Users")
+            users = get_data("Users", ["memberid", "password", "role", "name", "bio", "age"])
             if not users.empty:
                 m = users[(users['memberid'].astype(str).str.lower() == u) & (users['password'].astype(str) == p)]
                 if not m.empty:
@@ -98,19 +101,20 @@ with tabs[0]:
         post = st.text_area("Post to your timeline...", label_visibility="collapsed")
         if st.button("Post"):
             if post: save_log("Feed", "user", post); st.rerun()
-        l_df = get_data("ChatLogs")
+        l_df = get_data("ChatLogs", ["timestamp", "memberid", "agent", "role", "content"])
         if not l_df.empty:
             my_feed = l_df[(l_df['agent'] == "Feed") & (l_df['memberid'] == st.session_state.auth['mid'])].sort_values('timestamp', ascending=False).head(10)
             for _, p in my_feed.iterrows():
                 st.markdown(f'<div class="feed-card"><small>{p["timestamp"]}</small><p>{p["content"]}</p></div>', unsafe_allow_html=True)
 
-# --- TAB 3: FRIENDS & EXTERNAL PROFILES ---
+# --- TAB 3: FRIENDS & EXTERNAL PROFILES (KEYERROR PROTECTION) ---
 with tabs[3]:
-    f_df, u_df, l_df = get_data("Friends"), get_data("Users"), get_data("ChatLogs")
+    f_df = get_data("Friends", ["sender", "receiver", "status"])
+    u_df = get_data("Users", ["memberid", "name", "bio"])
+    l_df = get_data("ChatLogs", ["timestamp", "memberid", "agent", "content"])
     
-    # 1. Logic for viewing a specific profile
     if st.session_state.view_mid:
-        if st.button("← Back to Friends List"):
+        if st.button("← Back to Friends"):
             st.session_state.view_mid = None
             st.rerun()
         
@@ -118,38 +122,33 @@ with tabs[3]:
         if not target_u.empty:
             t = target_u.iloc[0]
             st.markdown(f"## 👤 {t['name']}'s Profile")
-            col_x, col_y = st.columns([1, 2])
-            with col_x:
+            cx, cy = st.columns([1, 2])
+            with cx:
                 st.info(f"**Bio:** {t.get('bio', 'No bio.')}")
                 st.write(f"**Member ID:** @{t['memberid']}")
-                
-                # Friend Request Button in Profile View
+                # Request Logic
                 status_check = f_df[((f_df['sender'] == st.session_state.auth['mid']) & (f_df['receiver'] == st.session_state.view_mid)) | 
                                     ((f_df['receiver'] == st.session_state.auth['mid']) & (f_df['sender'] == st.session_state.view_mid))]
                 if status_check.empty:
                     if st.button("➕ Add Friend", use_container_width=True):
                         save_to_sheet("Friends", pd.DataFrame([{"sender": st.session_state.auth['mid'], "receiver": st.session_state.view_mid, "status": "pending"}]))
-                        st.success("Request Sent!")
+                        st.success("Request Sent!"); st.rerun()
                 else:
                     st.info(f"Status: {status_check.iloc[0]['status'].capitalize()}")
-
-            with col_y:
-                st.subheader("📜 User Feed")
+            with cy:
+                st.subheader("📜 Timeline")
                 u_feed = l_df[(l_df['agent'] == "Feed") & (l_df['memberid'] == st.session_state.view_mid)].sort_values('timestamp', ascending=False)
-                if not u_feed.empty:
-                    for _, p in u_feed.iterrows():
-                        st.markdown(f'<div class="feed-card"><small>{p["timestamp"]}</small><p>{p["content"]}</p></div>', unsafe_allow_html=True)
-                else: st.write("This user hasn't posted anything yet.")
-        else: st.error("User not found.")
+                for _, p in u_feed.iterrows():
+                    st.markdown(f'<div class="feed-card"><small>{p["timestamp"]}</small><p>{p["content"]}</p></div>', unsafe_allow_html=True)
         st.stop()
 
-    # 2. Default Friends View
+    # Friends List Logic
     f1 = f_df[(f_df['sender'] == st.session_state.auth['mid']) & (f_df['status'] == "accepted")]['receiver'].tolist()
     f2 = f_df[(f_df['receiver'] == st.session_state.auth['mid']) & (f_df['status'] == "accepted")]['sender'].tolist()
     accepted_friends = list(set(f1 + f2))
 
-    c_left, c_right = st.columns(2)
-    with c_left:
+    cl, cr = st.columns(2)
+    with cl:
         st.subheader("🔍 Find People")
         sq = st.text_input("Search ID or Name:").strip().lower()
         if sq:
@@ -159,16 +158,12 @@ with tabs[3]:
                 if st.button(f"📄 Preview @{r['memberid']}", key=f"p_{r['memberid']}"):
                     st.session_state.view_mid = str(r['memberid'])
                     st.rerun()
-
-    with c_right:
+    with cr:
         st.subheader("✅ My Friends")
-        if accepted_friends:
-            for f_id in accepted_friends:
-                if st.button(f"👤 {f_id}", key=f"f_{f_id}", use_container_width=True):
-                    st.session_state.view_mid = f_id
-                    st.rerun()
-        else: st.write("No friends yet.")
-
+        for f_id in accepted_friends:
+            if st.button(f"👤 {f_id}", key=f"f_{f_id}", use_container_width=True):
+                st.session_state.view_mid = f_id
+                st.rerun()
         st.subheader("📥 Requests")
         inbound = f_df[(f_df['receiver'] == st.session_state.auth['mid']) & (f_df['status'] == "pending")]
         for _, r in inbound.iterrows():
@@ -179,7 +174,8 @@ with tabs[3]:
 # --- TAB 4: DIRECT MESSAGES ---
 with tabs[4]:
     st.subheader("📩 Direct Messages")
-    f_df, l_df = get_data("Friends"), get_data("ChatLogs")
+    f_df = get_data("Friends", ["sender", "receiver", "status"])
+    l_df = get_data("ChatLogs", ["timestamp", "memberid", "agent", "content"])
     f1 = f_df[(f_df['sender'] == st.session_state.auth['mid']) & (f_df['status'] == "accepted")]['receiver'].tolist()
     f2 = f_df[(f_df['receiver'] == st.session_state.auth['mid']) & (f_df['status'] == "accepted")]['sender'].tolist()
     friends = list(set(f1 + f2))
@@ -193,9 +189,9 @@ with tabs[4]:
                 st.markdown(f'<div class="chat-bubble {sty}">{m["content"]}</div>', unsafe_allow_html=True)
         if msg := st.chat_input(f"Message {sel}"):
             save_log(f"DM:{sel}", "user", msg); st.rerun()
-    else: st.info("Messaging is unlocked once you have accepted friends.")
+    else: st.info("Add friends to start chatting.")
 
-# --- TAB 5: ARCADE (SNAKE/MEMORY/SIMON) ---
+# --- TAB 5: ARCADE (SAME GAMES) ---
 with tabs[5]:
     gm = st.radio("Library", ["Snake", "Memory", "Simon Says"], horizontal=True)
     if gm == "Snake":
@@ -267,7 +263,7 @@ with tabs[5]:
 with tabs[6]:
     if st.session_state.auth["role"] == "admin":
         st.subheader("🛡️ Admin Logs")
-        all_l = get_data("ChatLogs")
+        all_l = get_data("ChatLogs", ["timestamp", "memberid", "agent", "content"])
         if not all_l.empty:
             all_l['dt'] = pd.to_datetime(all_l['timestamp'], format='mixed')
             c1, c2 = st.columns(2)
@@ -278,12 +274,12 @@ with tabs[6]:
                 filt = all_l[(all_l['dt'] >= s_ts) & (all_l['dt'] < e_ts)]
                 if u_f != "All": filt = filt[filt['memberid'] == u_f]
                 st.dataframe(filt.drop(columns=['dt']).sort_values('timestamp', ascending=False), use_container_width=True)
-    else: st.error("Admin credentials required.")
+    else: st.error("Restricted")
 
 # --- AGENTS & LOGOUT ---
 for i, agent in enumerate(["Cooper", "Clara"]):
     with tabs[i+1]:
-        all_logs = get_data("ChatLogs")
+        all_logs = get_data("ChatLogs", ["memberid", "agent", "role", "content"])
         ul = all_logs[(all_logs['memberid'] == st.session_state.auth['mid']) & (all_logs['agent'] == agent)].tail(15)
         with st.container(height=300):
             for _, r in ul.iterrows():
