@@ -11,33 +11,28 @@ st.set_page_config(page_title="Health Bridge Pro", layout="wide", initial_sideba
 defaults = {
     "auth": {"in": False, "mid": None, "role": "user", "fname": "", "lname": "", "bio": "", "dob": "2000-01-01"},
     "view_mid": None,
+    "active_chat_mid": None,
     "edit_mode": False
 }
 for key, val in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
-# Custom CSS for Professional UI
+# Custom CSS for Messaging & Social UI
 st.markdown("""
 <style>
     .stApp { background-color: #0F172A; color: #F8FAFC; }
-    .msg-bubble { padding: 12px 18px; border-radius: 18px; margin-bottom: 10px; max-width: 85%; }
-    .user-bubble { background: #1E40AF; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
-    .ai-bubble { background: #334155; color: white; border-bottom-left-radius: 2px; border-left: 4px solid #6366F1; }
-    .feed-card { background: #1E293B; padding: 15px; border-radius: 15px; border: 1px solid #334155; margin-bottom: 10px; }
-    .friend-sidebar-item { padding: 10px; background: #1E293B; border-radius: 8px; margin-bottom: 8px; border-left: 4px solid #6366F1; }
+    .chat-bubble { padding: 10px 15px; border-radius: 15px; margin-bottom: 8px; max-width: 80%; line-height: 1.4; }
+    .me { background: #2563EB; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
+    .them { background: #334155; color: white; border-bottom-left-radius: 2px; border-left: 4px solid #10B981; }
+    .sidebar-btn { width: 100%; text-align: left; padding: 10px; border-radius: 5px; margin-bottom: 5px; background: #1E293B; border: 1px solid #334155; color: white; cursor: pointer; }
+    .sidebar-btn:hover { background: #334155; }
+    .active-chat { border-left: 5px solid #6366F1 !important; background: #334155; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- 2. DATA CORE ---
 conn = st.connection("gsheets", type=GSheetsConnection)
-
-def calculate_age(dob_str):
-    try:
-        b_day = datetime.strptime(str(dob_str), "%Y-%m-%d").date()
-        today = date.today()
-        return today.year - b_day.year - ((today.month, today.day) < (b_day.month, b_day.day))
-    except: return "N/A"
 
 @st.cache_data(ttl=1)
 def get_data(ws, expected_cols=None):
@@ -56,174 +51,158 @@ def sync_data(ws_name, df):
     conn.update(worksheet=ws_name, data=df)
     st.cache_data.clear()
 
-def save_log(agent, role, content):
-    new_row = pd.DataFrame([{
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "memberid": st.session_state.auth['mid'], 
-        "agent": agent, "role": role, "content": content
-    }])
+def save_log(agent, role, content, custom_mid=None):
+    mid = custom_mid if custom_mid else st.session_state.auth['mid']
+    new_row = pd.DataFrame([{"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), "memberid": mid, "agent": agent, "role": role, "content": content}])
     existing = get_data("ChatLogs", ["timestamp", "memberid", "agent", "role", "content"])
     sync_data("ChatLogs", pd.concat([existing, new_row], ignore_index=True))
 
-# --- 3. UI HELPERS ---
-def render_clickable_friends(f_df, u_df, key_prefix):
-    mid = st.session_state.auth['mid']
-    acc = f_df[((f_df['sender']==mid) | (f_df['receiver']==mid)) & (f_df['status']=="accepted")]
-    if acc.empty:
-        st.caption("No friends yet.")
-    else:
-        for _, r in acc.iterrows():
-            fid = r['receiver'] if r['sender'] == mid else r['sender']
-            f_row = u_df[u_df['memberid'] == fid]
-            if not f_row.empty:
-                name = f"{f_row.iloc[0]['firstname']} {f_row.iloc[0]['lastname']}"
-                if st.button(f"👤 {name}", key=f"{key_prefix}_{fid}", use_container_width=True):
-                    st.session_state.view_mid = fid
-                    st.rerun()
-
-# --- 4. AUTHENTICATION SECTION (RESTORED) ---
+# --- 3. AUTHENTICATION (Full Logic) ---
 USER_COLS = ["memberid", "firstname", "lastname", "password", "role", "bio", "dob"]
-
 if not st.session_state.auth["in"]:
-    st.markdown("<h1 style='text-align:center;'>🧠 Health Bridge Pro</h1>", unsafe_allow_html=True)
-    t_login, t_signup = st.tabs(["Login", "Sign Up"])
-    
-    with t_login:
-        u_in = st.text_input("Member ID", key="l_u").lower().strip()
-        p_in = st.text_input("Password", type="password", key="l_p")
-        if st.button("Sign In", use_container_width=True):
+    st.title("🧠 Health Bridge Pro")
+    t1, t2 = st.tabs(["Login", "Sign Up"])
+    with t1:
+        u = st.text_input("Member ID").lower().strip()
+        p = st.text_input("Password", type="password")
+        if st.button("Sign In"):
             ud = get_data("Users", USER_COLS)
-            match = ud[(ud['memberid'].astype(str).str.lower() == u_in) & (ud['password'].astype(str) == p_in)]
+            match = ud[(ud['memberid'] == u) & (ud['password'] == p)]
             if not match.empty:
                 r = match.iloc[0]
-                st.session_state.auth.update({
-                    "in": True, "mid": u_in, "role": r['role'], 
-                    "fname": r['firstname'], "lname": r['lastname'], 
-                    "bio": r['bio'], "dob": r['dob']
-                })
+                st.session_state.auth.update({"in":True, "mid":u, "role":r['role'], "fname":r['firstname'], "lname":r['lastname'], "bio":r['bio'], "dob":r['dob']})
                 st.rerun()
-            else: st.error("Invalid ID or Password.")
-
-    with t_signup:
-        s_id = st.text_input("Choose Member ID", key="s_id").lower().strip()
-        s_pw = st.text_input("Create Password", type="password", key="s_pw")
-        c1, c2 = st.columns(2)
-        with c1: s_fn = st.text_input("First Name", key="s_fn")
-        with c2: s_ln = st.text_input("Last Name", key="s_ln")
-        s_dob = st.date_input("Date of Birth", min_value=date(1940,1,1), key="s_dob")
-        
-        if st.button("Register Account", use_container_width=True):
+            else: st.error("Invalid credentials.")
+    with t2:
+        sid, spw = st.text_input("New ID").lower().strip(), st.text_input("New Password", type="password")
+        sfn, sln = st.text_input("First Name"), st.text_input("Last Name")
+        if st.button("Register"):
             ud = get_data("Users", USER_COLS)
-            if s_id in ud['memberid'].astype(str).values:
-                st.error("This Member ID is already taken.")
-            elif not (s_id and s_fn and s_ln and s_pw):
-                st.warning("Please fill in all fields.")
+            if sid in ud['memberid'].values: st.error("ID Taken")
             else:
-                new_user = pd.DataFrame([{
-                    "memberid": s_id, "firstname": s_fn, "lastname": s_ln, 
-                    "password": s_pw, "role": "user", "bio": "New member!", "dob": str(s_dob)
-                }])
-                sync_data("Users", pd.concat([ud, new_user], ignore_index=True))
-                st.success("Account created! You can now login.")
+                new_u = pd.DataFrame([{"memberid":sid, "firstname":sfn, "lastname":sln, "password":spw, "role":"user", "bio":"Hello!", "dob":"2000-01-01"}])
+                sync_data("Users", pd.concat([ud, new_u], ignore_index=True)); st.success("Created!")
     st.stop()
 
-# --- 5. MAIN APP DATA ---
+# --- 4. APP DATA REFRESH ---
 l_df = get_data("ChatLogs", ["timestamp", "memberid", "agent", "role", "content"])
 f_df = get_data("Friends", ["sender", "receiver", "status"])
 u_df = get_data("Users", USER_COLS)
 
+# Get Accepted Friends List
+mid = st.session_state.auth['mid']
+f1 = f_df[(f_df['sender']==mid) & (f_df['status']=="accepted")]['receiver'].tolist()
+f2 = f_df[(f_df['receiver']==mid) & (f_df['status']=="accepted")]['sender'].tolist()
+friends_list = sorted(list(set(f1+f2)))
+
 tabs = st.tabs(["👤 Profile", "🤝 Cooper", "✨ Clara", "👥 Friends", "📩 Messages", "🛠️ Admin", "🚪 Logout"])
 
-# --- TAB 0: PROFILE ---
+# --- PROFILE ---
 with tabs[0]:
-    c1, c2, c3 = st.columns([1, 2, 1])
+    c1, c2 = st.columns([1, 2])
     with c1:
-        st.subheader("My Profile")
-        st.markdown(f"### {st.session_state.auth['fname']} {st.session_state.auth['lname']}")
-        st.caption(f"Age: {calculate_age(st.session_state.auth['dob'])} | @{st.session_state.auth['mid']}")
+        st.header(f"{st.session_state.auth['fname']} {st.session_state.auth['lname']}")
         st.write(st.session_state.auth['bio'])
-    
     with c2:
-        st.subheader("Timeline")
-        with st.container(border=True):
-            post_txt = st.text_area("Create a new post...", key="new_post_in", label_visibility="collapsed")
-            if st.button("Post with Timestamp", use_container_width=True):
-                if post_txt:
-                    save_log("Feed", "user", post_txt); st.rerun()
-        
-        my_posts = l_df[(l_df['agent']=="Feed") & (l_df['memberid']==st.session_state.auth['mid'])].sort_values('timestamp', ascending=False)
-        for idx, row in my_posts.iterrows():
-            with st.container(border=True):
-                st.caption(f"🕒 {row['timestamp']}")
-                st.write(row['content'])
-                if st.button("Delete Post", key=f"del_p_{idx}"):
-                    sync_data("ChatLogs", l_df.drop(idx)); st.rerun()
+        st.subheader("Post to Timeline")
+        p_in = st.text_area("What's happening?", key="timeline_post")
+        if st.button("Post") and p_in:
+            save_log("Feed", "user", p_in); st.rerun()
 
-    with c3:
-        st.subheader("My Friends")
-        render_clickable_friends(f_df, u_df, "side_f")
-
-# --- TAB 1 & 2: AI AGENTS ---
-for i, name in enumerate(["Cooper", "Clara"]):
-    with tabs[i+1]:
-        hist = l_df[(l_df['memberid'] == st.session_state.auth['mid']) & (l_df['agent'] == name)].tail(15)
-        for _, r in hist.iterrows():
-            st.chat_message(r['role']).write(r['content'])
-        
-        if prompt := st.chat_input(f"Talk to {name}...", key=f"chat_{name}"):
-            save_log(name, "user", prompt)
-            try:
-                client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
-                role_desc = "empathetic health friend" if name == "Cooper" else "bright wellness coach"
-                sys_msg = f"You are {name}, a {role_desc}. User is {st.session_state.auth['fname']}."
-                msgs = [{"role": "system", "content": sys_msg}] + [{"role": r.role, "content": r.content} for _, r in hist.iterrows()] + [{"role": "user", "content": prompt}]
-                res = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs)
-                save_log(name, "assistant", res.choices[0].message.content); st.rerun()
-            except Exception as e: st.error("Connection Error. Check API Key.")
-
-# --- TAB 3: FRIENDS (CLICKABLE) ---
+# --- FRIENDS TAB (CLICKABLE NAMES TO PROFILE) ---
 with tabs[3]:
     if st.session_state.view_mid:
-        if st.button("← Back to List"): st.session_state.view_mid = None; st.rerun()
-        target = u_df[u_df['memberid'] == st.session_state.view_mid]
-        if not target.empty:
-            t = target.iloc[0]
-            st.header(f"{t['firstname']} {t['lastname']}")
+        if st.button("← Back to Friends"): st.session_state.view_mid = None; st.rerun()
+        rows = u_df[u_df['memberid'] == st.session_state.view_mid]
+        if not rows.empty:
+            t = rows.iloc[0]
+            st.title(f"{t['firstname']} {t['lastname']}")
             st.info(t['bio'])
-            st.subheader("Recent Posts")
-            t_posts = l_df[(l_df['agent']=="Feed") & (l_df['memberid']==st.session_state.view_mid)].sort_values('timestamp', ascending=False)
-            for _, r in t_posts.iterrows():
-                st.markdown(f'<div class="feed-card"><small>{r["timestamp"]}</small><br>{r["content"]}</div>', unsafe_allow_html=True)
+            st.subheader("Posts")
+            posts = l_df[(l_df['agent']=="Feed") & (l_df['memberid']==st.session_state.view_mid)].sort_values('timestamp', ascending=False)
+            for _, r in posts.iterrows():
+                st.markdown(f'<div style="background:#1E293B; padding:10px; border-radius:10px; margin-bottom:10px;"><small>{r["timestamp"]}</small><p>{r["content"]}</p></div>', unsafe_allow_html=True)
     else:
-        st.subheader("Find Connections")
-        search_f = st.text_input("Search by ID", key="search_f_in")
-        if search_f:
-            res = u_df[u_df['memberid'].str.contains(search_f, case=False)]
-            for _, r in res.iterrows():
-                if st.button(f"View Profile: @{r['memberid']}", key=f"src_{r['memberid']}"):
-                    st.session_state.view_mid = r['memberid']; st.rerun()
+        st.subheader("Your Friends")
+        if not friends_list: st.info("No friends added yet.")
+        for f in friends_list:
+            f_data = u_df[u_df['memberid'] == f]
+            label = f"{f_data.iloc[0]['firstname']} {f_data.iloc[0]['lastname']} (@{f})" if not f_data.empty else f
+            if st.button(label, key=f"f_list_{f}"):
+                st.session_state.view_mid = f; st.rerun()
 
-# --- TAB 5: ADMIN (DEEP FILTERS) ---
+# --- MESSAGES TAB (CLICKABLE BUTTONS / REAL CHAT) ---
+with tabs[4]:
+    mc1, mc2 = st.columns([1, 3])
+    with mc1:
+        st.subheader("Chats")
+        for f in friends_list:
+            f_data = u_df[u_df['memberid'] == f]
+            f_name = f_data.iloc[0]['firstname'] if not f_data.empty else f
+            is_active = "active-chat" if st.session_state.active_chat_mid == f else ""
+            if st.button(f"💬 {f_name}", key=f"msg_btn_{f}"):
+                st.session_state.active_chat_mid = f
+                st.rerun()
+    
+    with mc2:
+        target = st.session_state.active_chat_mid
+        if target:
+            f_data = u_df[u_df['memberid'] == target]
+            st.subheader(f"Chat with {f_data.iloc[0]['firstname'] if not f_data.empty else target}")
+            
+            # Show DM History
+            dm_h = l_df[
+                ((l_df['memberid'] == mid) & (l_df['agent'] == f"DM:{target}")) |
+                ((l_df['memberid'] == target) & (l_df['agent'] == f"DM:{mid}"))
+            ].sort_values('timestamp')
+            
+            with st.container(height=400):
+                for _, m in dm_h.iterrows():
+                    cls = "me" if m['memberid'] == mid else "them"
+                    st.markdown(f'<div class="chat-bubble {cls}">{m["content"]}</div>', unsafe_allow_html=True)
+            
+            if msg_in := st.chat_input("Send message..."):
+                save_log(f"DM:{target}", "user", msg_in)
+                st.rerun()
+        else:
+            st.info("Select a friend from the left to start messaging.")
+
+# --- ADMIN PANEL (DEEP FILTERS & DELETE) ---
 with tabs[5]:
     if st.session_state.auth['role'] == "admin":
-        st.subheader("🛡️ Global Log Audit")
-        with st.expander("🚨 Danger Zone: Delete Logs"):
-            d_id = st.text_input("ID to Wipe", key="admin_wipe_id")
-            if st.button("Delete All Logs for this ID", type="primary"):
-                sync_data("ChatLogs", l_df[l_df['memberid'] != d_id]); st.success("Purged.")
+        st.subheader("🛠️ Admin Command Center")
+        with st.expander("🗑️ Delete User History"):
+            target_del = st.text_input("Enter ID to wipe:")
+            if st.button("Confirm Wipe", type="primary"):
+                sync_data("ChatLogs", l_df[l_df['memberid'] != target_del]); st.success("Logs Purged")
         
         st.divider()
+        st.write("Advanced Log Search")
         c1, c2, c3 = st.columns(3)
-        with c1: a_agent = st.multiselect("Agents", l_df['agent'].unique(), default=l_df['agent'].unique())
-        with c2: a_mid = st.text_input("Search Member ID", key="a_mid_search")
-        with c3: a_key = st.text_input("Keyword Search", key="a_key_search")
+        with c1: q_agent = st.multiselect("Agents", l_df['agent'].unique(), default=l_df['agent'].unique())
+        with c2: q_mid = st.text_input("Member ID")
+        with c3: q_key = st.text_input("Keyword")
         
-        filtered = l_df[l_df['agent'].isin(a_agent)]
-        if a_mid: filtered = filtered[filtered['memberid'].str.contains(a_mid, case=False)]
-        if a_key: filtered = filtered[filtered['content'].str.contains(a_key, case=False)]
-        st.dataframe(filtered.sort_values('timestamp', ascending=False), use_container_width=True)
-    else: st.error("Admin Only")
+        res = l_df[l_df['agent'].isin(q_agent)]
+        if q_mid: res = res[res['memberid'].str.contains(q_mid, case=False)]
+        if q_key: res = res[res['content'].str.contains(q_key, case=False)]
+        st.dataframe(res.sort_values('timestamp', ascending=False), use_container_width=True)
+    else: st.error("Admin Restricted")
 
-# --- TAB 6: LOGOUT ---
+# --- AI AGENTS (v8.9) ---
+for i, name in enumerate(["Cooper", "Clara"]):
+    with tabs[i+1]:
+        hist = l_df[(l_df['memberid'] == mid) & (l_df['agent'] == name)].tail(15)
+        for _, r in hist.iterrows():
+            st.chat_message(r['role']).write(r['content'])
+        if p := st.chat_input(f"Talk to {name}..."):
+            save_log(name, "user", p)
+            client = Groq(api_key=st.secrets["GROQ_API_KEY"].strip())
+            msgs = [{"role": "system", "content": f"You are {name}, friend to {st.session_state.auth['fname']}."}] + \
+                   [{"role": r.role, "content": r.content} for _, r in hist.iterrows()] + [{"role": "user", "content": p}]
+            ans = client.chat.completions.create(model="llama-3.3-70b-versatile", messages=msgs).choices[0].message.content
+            save_log(name, "assistant", ans); st.rerun()
+
+# --- LOGOUT ---
 with tabs[6]:
-    if st.button("Sign Out"): st.session_state.clear(); st.rerun()
+    if st.button("Logout"): st.session_state.clear(); st.rerun()
