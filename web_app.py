@@ -67,7 +67,7 @@ def save_log(agent, role, content):
     existing = get_data("ChatLogs", ["timestamp", "memberid", "agent", "role", "content"])
     sync_data("ChatLogs", pd.concat([existing, new_row], ignore_index=True))
 
-# --- 3. HARDENED AUTHENTICATION ---
+# --- 3. FIXED AUTHENTICATION (STR Accessor Fix) ---
 USER_COLS = ["memberid", "firstname", "lastname", "password", "role", "bio", "dob"]
 
 if not st.session_state.auth["in"]:
@@ -79,9 +79,10 @@ if not st.session_state.auth["in"]:
         p_in = st.text_input("Password", type="password").strip()
         if st.button("Sign In", use_container_width=True):
             ud = get_data("Users", USER_COLS)
-            # Case-insensitive & Type-safe match
-            ud['mid_check'] = ud['memberid'].astype(str).str.strip().lower()
+            # FIXED: Added .str accessor to perform lower() and strip() on the Series
+            ud['mid_check'] = ud['memberid'].astype(str).str.strip().str.lower()
             ud['pw_check'] = ud['password'].astype(str).str.strip()
+            
             match = ud[(ud['mid_check'] == u_in) & (ud['pw_check'] == p_in)]
             
             if not match.empty:
@@ -103,7 +104,9 @@ if not st.session_state.auth["in"]:
         sdob = st.date_input("Birthday", min_value=date(1940,1,1))
         if st.button("Register Account"):
             ud = get_data("Users", USER_COLS)
-            if sid in ud['memberid'].astype(str).str.lower().values: st.error("ID Taken")
+            # FIXED: Added .str accessor here as well
+            if sid in ud['memberid'].astype(str).str.lower().values: 
+                st.error("ID Taken")
             else:
                 new_u = pd.DataFrame([{"memberid":sid, "firstname":sfn, "lastname":sln, "password":spw, "role":"user", "bio":"Hello!", "dob":str(sdob)}])
                 sync_data("Users", pd.concat([ud, new_u], ignore_index=True)); st.success("Account created!")
@@ -121,7 +124,7 @@ friends_ids = [r['receiver'] if r['sender'] == mid else r['sender'] for _, r in 
 
 tabs = st.tabs(["👤 Profile", "🤝 Cooper", "✨ Clara", "👥 Friends", "📩 Messages", "🛠️ Admin", "🚪 Logout"])
 
-# --- TAB 0: PROFILE (FRIENDS SIDEBAR & FEED) ---
+# --- TAB 0: PROFILE ---
 with tabs[0]:
     c1, c2, c3 = st.columns([1, 2, 1])
     with c1:
@@ -144,7 +147,7 @@ with tabs[0]:
             if st.button(f"👤 {name}", key=f"p_side_{fid}", use_container_width=True):
                 st.session_state.view_mid = fid; st.rerun()
 
-# --- TAB 3: FRIENDS DIRECTORY ---
+# --- TAB 3: FRIENDS ---
 with tabs[3]:
     if st.session_state.view_mid:
         if st.button("← Back"): st.session_state.view_mid = None; st.rerun()
@@ -164,7 +167,7 @@ with tabs[3]:
             if st.button(f"View Profile: {name}", key=f"f_tab_{fid}"):
                 st.session_state.view_mid = fid; st.rerun()
 
-# --- TAB 4: MESSAGES (REAL CHAT UI) ---
+# --- TAB 4: MESSAGES ---
 with tabs[4]:
     mc1, mc2 = st.columns([1, 3])
     with mc1:
@@ -173,7 +176,7 @@ with tabs[4]:
             f_row = u_df[u_df['memberid'].astype(str) == str(fid)]
             f_name = f_row.iloc[0]['firstname'] if not f_row.empty else fid
             btn_style = "active-chat-btn" if st.session_state.active_chat_mid == fid else ""
-            if st.button(f"💬 {f_name}", key=f"m_list_{fid}", use_container_width=True, help=f"Chat with {fid}"):
+            if st.button(f"💬 {f_name}", key=f"m_list_{fid}", use_container_width=True):
                 st.session_state.active_chat_mid = fid; st.rerun()
     with mc2:
         target = st.session_state.active_chat_mid
@@ -187,7 +190,7 @@ with tabs[4]:
                 save_log(f"DM:{target}", "user", msg_in); st.rerun()
         else: st.info("Select a chat to begin.")
 
-# --- TAB 5: ADMIN PANEL (ADVANCED) ---
+# --- TAB 5: ADMIN PANEL ---
 with tabs[5]:
     if st.session_state.auth['role'] == "admin":
         st.subheader("🛡️ Admin Panel")
